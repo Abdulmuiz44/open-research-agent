@@ -1,20 +1,53 @@
 # Open Research Agent
 
-Open Research Agent is a Python-first research and analysis pipeline that searches the web, extracts trustworthy evidence, analyzes mixed data sources, and produces grounded reports with citations.
+Open Research Agent is an open-source, Python-first system for bounded research workflows over web and local data sources.
 
-## Status
+## Current Status
 
-Planning
+**Scaffolded** — repository structure, typed interfaces, and entrypoints are in place; core business logic remains intentionally unimplemented.
 
-## Planning Docs
+## Stack Summary
 
-- [PRD](C:\Users\Hp\Documents\Github\open-research-agent\docs\PRD.md)
-- [Architecture](C:\Users\Hp\Documents\Github\open-research-agent\docs\ARCHITECTURE.md)
-- [MVP Scope](C:\Users\Hp\Documents\Github\open-research-agent\docs\MVP_SCOPE.md)
-- [Task List](C:\Users\Hp\Documents\Github\open-research-agent\docs\TASKLIST.md)
+- Python 3.11+
+- CLI: Typer + Rich
+- API: FastAPI + Uvicorn
+- Models/validation: Pydantic + PydanticAI
+- LLM routing: LiteLLM
+- Web acquisition: HTTPX + Playwright + Crawl4AI
+- Extraction: Trafilatura + Selectolax
+- Data/analysis: Polars + pandas + DuckDB + PyArrow
+- Tooling: uv + Ruff + Pytest
 
-## Short Roadmap
+## Repository Structure
 
-- V1: Deliver a reliable research pipeline with planning, search, fetch, extraction, normalization, analysis, and evidence-backed report generation.
-- V1.1: Improve source coverage, evaluation, caching, and structured export formats.
-- V2: Add multi-run memory, more advanced workflows, and optional human-in-the-loop orchestration.
+```text
+apps/
+  api/
+  cli/
+src/
+  core/
+  agents/
+  search/
+  web/
+  data/
+  analysis/
+  llm/
+  workflows/
+tests/
+docs/
+outputs/
+```
+
+## Setup (Scaffold Phase)
+
+1. Install Python 3.11 and `uv`.
+2. Create environment and install dependencies:
+   - `uv sync --extra dev`
+3. Copy and configure environment variables:
+   - `cp .env.example .env`
+4. Run smoke tests:
+   - `uv run pytest`
+
+## Next Implementation Milestone
+
+Implement request intake, planner, and search provider path to produce bounded candidate sources with provenance, aligned to `docs/TASKLIST.md` Phase 3–4.
