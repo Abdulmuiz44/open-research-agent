@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
+
+from src.data.models import RunStatus
+
+
+class HealthResponse(BaseModel):
+    """Health-check response payload."""
+
+    status: str = "ok"
+    app_name: str
+    environment: str
 
 
 class ResearchRunCreateRequest(BaseModel):
@@ -17,4 +29,15 @@ class ResearchRunResponse(BaseModel):
     """Response payload exposing run lifecycle metadata."""
 
     run_id: str
-    status: str
+    objective: str
+    status: RunStatus
+    created_at: datetime
+    updated_at: datetime
+    message: str | None = None
+
+
+class RunArtifactsResponse(BaseModel):
+    """Placeholder list of artifact metadata tied to a run."""
+
+    run_id: str
+    artifact_ids: list[str] = Field(default_factory=list)
