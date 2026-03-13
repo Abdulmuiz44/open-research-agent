@@ -10,6 +10,13 @@ def test_core_imports() -> None:
     import src.core.logging  # noqa: F401
 
 
+def test_app_imports() -> None:
+    """Ensure app entrypoints import cleanly."""
+    import apps.api.main  # noqa: F401
+    import apps.cli.main  # noqa: F401
+
+
 def test_workflow_imports() -> None:
     """Ensure workflow-level modules import."""
     import src.workflows.run_research  # noqa: F401
+    import src.llm.router  # noqa: F401
