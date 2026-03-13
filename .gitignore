@@ -1,0 +1,29 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment
+.env
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Runtime outputs
+outputs/runs/
+outputs/artifacts/
+*.duckdb
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
