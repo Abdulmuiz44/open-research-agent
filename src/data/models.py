@@ -23,6 +23,23 @@ class ArtifactKind(str, Enum):
     REPORT_DRAFT = "report_draft"
 
 
+class ResearchRequest(BaseModel):
+    """Input payload for a bounded research run."""
+
+    objective: str = Field(min_length=3)
+    constraints: list[str] = Field(default_factory=list)
+    max_sources: int = Field(default=10, ge=1, le=100)
+
+
+class ResearchPlan(BaseModel):
+    """Deterministic plan created from a request."""
+
+    objective: str
+    research_objectives: list[str] = Field(default_factory=list)
+    search_queries: list[str] = Field(default_factory=list)
+    source_budget: int = Field(default=10, ge=1, le=100)
+
+
 class ResearchRun(BaseModel):
     """Top-level run metadata and lifecycle state."""
 
@@ -32,6 +49,41 @@ class ResearchRun(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     error_message: str | None = None
+
+
+class CandidateSource(BaseModel):
+    """Source candidate discovered by a search provider."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    run_id: str
+    query: str
+    url: HttpUrl
+    domain: str
+    title: str | None = None
+    snippet: str | None = None
+    provider: str
+    provider_rank: int = Field(default=0, ge=0)
+    score: float = 0.0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class FetchedDocument(BaseModel):
+    """HTTP/browser fetch result for a candidate source."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    run_id: str
+    source_id: str
+    requested_url: HttpUrl
+    final_url: HttpUrl | None = None
+    status_code: int | None = None
+    content_type: str | None = None
+    content_length: int | None = None
+    text: str | None = None
+    raw_html: str | None = None
+    fetch_method: str = "http"
+    success: bool = False
+    error: str | None = None
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class Source(BaseModel):
@@ -55,6 +107,7 @@ class ExtractedDocument(BaseModel):
     source_id: str
     title: str | None = None
     content: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
     content_hash: str | None = None
     extracted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -81,3 +134,13 @@ class AnalysisArtifact(BaseModel):
     summary: str = ""
     evidence_ids: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class Report(BaseModel):
+    """Simple deterministic report payload."""
+
+    run_id: str
+    objective: str
+    findings: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    markdown: str

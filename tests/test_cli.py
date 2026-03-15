@@ -5,27 +5,29 @@ from __future__ import annotations
 from typer.testing import CliRunner
 
 from apps.cli.main import app
+from src.search.provider import StubSearchProvider
+from src.workflows import run_research as workflow_module
 
 
 runner = CliRunner()
 
 
 def test_cli_help() -> None:
-    """CLI should render help output."""
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "Open Research Agent" in result.stdout
 
 
 def test_cli_health() -> None:
-    """CLI health command should return success output."""
     result = runner.invoke(app, ["health"])
     assert result.exit_code == 0
     assert "ok | app=" in result.stdout
 
 
-def test_cli_placeholder_commands_fail() -> None:
-    """Deferred commands should return a clear non-zero placeholder status."""
+def test_cli_research_success(monkeypatch) -> None:
+    workflow_module.get_settings.cache_clear()
+    monkeypatch.setattr(workflow_module, "build_search_provider", lambda _settings: StubSearchProvider())
     result = runner.invoke(app, ["research", "test objective"])
-    assert result.exit_code == 1
-    assert "not implemented yet" in result.stdout
+    assert result.exit_code == 0
+    assert "run_id:" in result.stdout
+    assert "status:" in result.stdout
