@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from src.core.config import get_settings
+from src.core.exceptions import StorageError
 from src.data.models import AnalysisArtifact, ExtractedDocument, ExtractedTable, ResearchRun, RunStatus, Source
 
 
@@ -54,6 +55,10 @@ class StorageBackend(ABC):
         """Load run metadata by run ID."""
 
     @abstractmethod
+    def list_runs(self) -> list[ResearchRun]:
+        """List all runs in reverse-chronological order."""
+
+    @abstractmethod
     def list_run_artifacts(self, run_id: str) -> list[str]:
         """List artifact paths associated with a run."""
 
@@ -67,14 +72,20 @@ class LocalStorageStub(StorageBackend):
 
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = (base_dir or get_settings().runs_dir).resolve()
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise StorageError(f"Failed to initialize runs directory at {self.base_dir}: {exc}") from exc
         self._runs: dict[str, ResearchRun] = {}
         self._artifacts: defaultdict[str, list[str]] = defaultdict(list)
         self._artifact_refs: defaultdict[str, dict[str, str]] = defaultdict(dict)
 
     def create_run(self, run: ResearchRun) -> ResearchRun:
         self._runs[run.id] = run
-        self._run_dir(run.id).mkdir(parents=True, exist_ok=True)
+        try:
+            self._run_dir(run.id).mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise StorageError(f"Failed to create run directory for {run.id}: {exc}") from exc
         return run
 
     def update_run_status(self, run_id: str, status: RunStatus, *, error_message: str | None = None) -> ResearchRun:
@@ -105,20 +116,29 @@ class LocalStorageStub(StorageBackend):
 
     def save_artifact_json(self, run_id: str, relative_path: str, payload: dict[str, Any] | list[Any]) -> str:
         path = self._run_dir(run_id) / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        except OSError as exc:
+            raise StorageError(f"Failed to write JSON artifact {relative_path} for run {run_id}: {exc}") from exc
         self._track(run_id, relative_path)
         return str(path)
 
     def save_artifact_markdown(self, run_id: str, relative_path: str, markdown: str) -> str:
         path = self._run_dir(run_id) / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(markdown, encoding="utf-8")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(markdown, encoding="utf-8")
+        except OSError as exc:
+            raise StorageError(f"Failed to write markdown artifact {relative_path} for run {run_id}: {exc}") from exc
         self._track(run_id, relative_path)
         return str(path)
 
     def get_run(self, run_id: str) -> ResearchRun | None:
         return self._runs.get(run_id)
+
+    def list_runs(self) -> list[ResearchRun]:
+        return sorted(self._runs.values(), key=lambda run: run.created_at, reverse=True)
 
     def list_run_artifacts(self, run_id: str) -> list[str]:
         return list(self._artifacts[run_id])
