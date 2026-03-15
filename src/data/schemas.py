@@ -1,4 +1,4 @@
-"""API and interface schemas derived from core data models."""
+﻿"""API and interface schemas derived from core data models."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class ReadyResponse(BaseModel):
 
 
 class ReadinessResponse(BaseModel):
-    """Readiness response payload."""
+    """Extended readiness response payload."""
 
     status: str
     app_name: str
@@ -60,17 +60,18 @@ class ResearchRunResponse(BaseModel):
     artifact_count: int = 0
     artifact_dir: str | None = None
     report_path: str | None = None
-    # compatibility fields
     objective: str | None = None
     discovered_sources: int = 0
     fetched_sources: int = 0
+    fetched_http_count: int = 0
+    fetched_browser_count: int = 0
+    fallback_trigger_count: int = 0
     extracted_documents: int = 0
-    findings_count: int = 0
+    extraction_status_summary: dict[str, int] = Field(default_factory=dict)
+    artifact_paths: dict[str, str] = Field(default_factory=dict)
     themes_count: int = 0
     contradictions_count: int = 0
     analysis_summary: str | None = None
-    artifact_dir: str | None = None
-    report_path: str | None = None
 
 
 class RunListResponse(BaseModel):

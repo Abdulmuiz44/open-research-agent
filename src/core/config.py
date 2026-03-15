@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     max_sources_per_run: int = 8
     max_fetch_per_run: int = 6
 
+    browser_fallback_enabled: bool = True
+    browser_fallback_min_text_chars: int = 200
+    browser_fallback_timeout_seconds: float = 8.0
+    browser_fallback_wait_seconds: float = 1.5
+
     openai_api_key: str | None = Field(default=None, repr=False)
     anthropic_api_key: str | None = Field(default=None, repr=False)
     search_api_key: str | None = Field(default=None, repr=False)
