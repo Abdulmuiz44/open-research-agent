@@ -40,7 +40,12 @@ def research(objective: str, max_sources: int = 6) -> None:
     typer.echo(f"queries: {', '.join(output.search_queries)}")
     typer.echo(f"discovered_sources: {len(output.discovered_sources)}")
     typer.echo(f"fetched_sources: {fetched_success}")
+    typer.echo(f"fetched_http: {output.fetched_http_count}")
+    typer.echo(f"fetched_browser_fallback: {output.fetched_browser_count}")
+    typer.echo(f"fallback_trigger_count: {output.fallback_trigger_count}")
     typer.echo(f"extracted_documents: {len(output.extracted_documents)}")
+    typer.echo(f"artifact_dir: {output.artifact_paths.get('artifact_dir', '')}")
+    typer.echo(f"report_path: {output.artifact_paths.get('report', '')}")
 
 
 @app.command()

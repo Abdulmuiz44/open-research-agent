@@ -47,11 +47,16 @@ def start_research_run(payload: ResearchRunCreateRequest) -> ResearchRunResponse
         status=output.run.status,
         created_at=output.run.created_at,
         updated_at=output.run.updated_at,
-        message="Run completed with bounded real discovery/fetch flow.",
+        message="Run completed with bounded HTTP-first fetch and browser fallback recovery.",
         search_queries=output.search_queries,
         discovered_sources=len(output.discovered_sources),
         fetched_sources=fetched_success,
+        fetched_http_count=output.fetched_http_count,
+        fetched_browser_count=output.fetched_browser_count,
+        fallback_trigger_count=output.fallback_trigger_count,
         extracted_documents=len(output.extracted_documents),
+        extraction_status_summary=output.extraction_status_summary,
+        artifact_paths=output.artifact_paths,
     )
 
 
@@ -69,4 +74,5 @@ def get_research_run(run_id: str) -> ResearchRunResponse:
         created_at=run.created_at,
         updated_at=run.updated_at,
         message="Run metadata retrieved from local storage.",
+        artifact_paths=storage.get_run_artifact_paths(run_id),
     )

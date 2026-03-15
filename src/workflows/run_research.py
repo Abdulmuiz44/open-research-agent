@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections import Counter
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +15,7 @@ from src.data.models import (
     ArtifactKind,
     CandidateSource,
     ExtractedDocument,
+    FetchMethod,
     FetchedDocument,
     ResearchPlan,
     ResearchRun,
@@ -44,6 +48,11 @@ class RunResearchOutput(BaseModel):
     extracted_documents: list[ExtractedDocument]
     analysis_artifacts: list[AnalysisArtifact]
     report_markdown: str
+    fetched_http_count: int = 0
+    fetched_browser_count: int = 0
+    fallback_trigger_count: int = 0
+    extraction_status_summary: dict[str, int] = Field(default_factory=dict)
+    artifact_paths: dict[str, str] = Field(default_factory=dict)
 
 
 def initialize_run(payload: RunResearchInput) -> ResearchRun:
@@ -58,6 +67,59 @@ def _build_plan(payload: RunResearchInput) -> ResearchPlan:
         research_objectives=objectives[:3],
         source_budget=min(payload.max_sources, get_settings().max_sources_per_run),
     )
+
+
+def _save_run_artifacts(
+    run_id: str,
+    fetched: list[FetchedDocument],
+    extracted: list[ExtractedDocument],
+    report_markdown: str,
+) -> dict[str, str]:
+    settings = get_settings()
+    run_dir = Path(settings.artifacts_dir) / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    fetch_path = run_dir / "fetch_metadata.json"
+    extraction_path = run_dir / "extraction_summary.json"
+    report_path = run_dir / "report.md"
+
+    fetch_payload = [
+        {
+            "source_id": doc.source_id,
+            "requested_url": str(doc.requested_url),
+            "final_url": str(doc.final_url) if doc.final_url else None,
+            "fetch_method": doc.fetch_method,
+            "fetch_outcome": doc.fetch_outcome,
+            "fallback_triggered": doc.fallback_triggered,
+            "fallback_reason": doc.fallback_reason,
+            "status_code": doc.status_code,
+            "rendered_content_available": doc.rendered_content_available,
+            "content_length": doc.content_length,
+            "error": doc.error,
+        }
+        for doc in fetched
+    ]
+    extraction_payload = [
+        {
+            "source_id": doc.source_id,
+            "title": doc.title,
+            "text_length": doc.text_length,
+            "extraction_quality": doc.extraction_quality,
+            "metadata": doc.metadata,
+        }
+        for doc in extracted
+    ]
+
+    fetch_path.write_text(json.dumps(fetch_payload, indent=2, default=str), encoding="utf-8")
+    extraction_path.write_text(json.dumps(extraction_payload, indent=2, default=str), encoding="utf-8")
+    report_path.write_text(report_markdown, encoding="utf-8")
+
+    return {
+        "artifact_dir": str(run_dir),
+        "fetch_metadata": str(fetch_path),
+        "extraction_summary": str(extraction_path),
+        "report": str(report_path),
+    }
 
 
 def run_research_workflow(
@@ -91,12 +153,19 @@ def run_research_workflow(
                     title=source.title,
                 )
             )
+        for document in fetched:
+            backend.save_fetched_document(document)
         for document in extracted:
             backend.save_extracted_document(document)
 
+        fetched_http_count = len([doc for doc in fetched if doc.fetch_method == FetchMethod.HTTP])
+        fetched_browser_count = len([doc for doc in fetched if doc.fetch_method == FetchMethod.BROWSER])
+        fallback_trigger_count = len([doc for doc in fetched if doc.fallback_triggered])
+        extraction_status_summary = dict(Counter([doc.extraction_quality for doc in extracted]))
+
         summary = (
             f"Discovered {len(discovered)} sources, fetched {len([d for d in fetched if d.success])}, "
-            f"extracted {len(extracted)} documents."
+            f"browser fallback used for {fallback_trigger_count}, extracted {len(extracted)} documents."
         )
         artifact = AnalysisArtifact(
             run_id=run.id,
@@ -110,9 +179,11 @@ def run_research_workflow(
             f"# Research Report\n\nObjective: {run.objective}",
             f"\n## Method\n- queries: {', '.join(queries)}",
             f"\n## Findings\n- {summary}",
-            "\n## Limitations\n- Analysis is deterministic and lightweight in this MVP stage.",
+            "\n## Limitations\n- Workflow is bounded to HTTP-first fetch with single-page browser fallback.",
         ]
         report_markdown = "\n".join(report_lines)
+        artifact_paths = _save_run_artifacts(run.id, fetched, extracted, report_markdown)
+        backend.set_run_artifact_paths(run.id, artifact_paths)
 
         run = backend.update_run_status(run.id, RunStatus.COMPLETED)
         return RunResearchOutput(
@@ -124,7 +195,12 @@ def run_research_workflow(
             extracted_documents=extracted,
             analysis_artifacts=[artifact],
             report_markdown=report_markdown,
+            fetched_http_count=fetched_http_count,
+            fetched_browser_count=fetched_browser_count,
+            fallback_trigger_count=fallback_trigger_count,
+            extraction_status_summary=extraction_status_summary,
+            artifact_paths=artifact_paths,
         )
-    except Exception as exc:
-        run = backend.update_run_status(run.id, RunStatus.FAILED, error_message=str(exc))
+    except Exception:
+        run = backend.update_run_status(run.id, RunStatus.FAILED)
         raise

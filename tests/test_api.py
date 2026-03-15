@@ -32,6 +32,10 @@ def test_create_run_route_executes_workflow(monkeypatch) -> None:
     assert body["status"] == "completed"
     assert body["run_id"]
     assert body["search_queries"]
+    assert "fetched_http_count" in body
+    assert "fetched_browser_count" in body
+    assert "fallback_trigger_count" in body
+    assert "artifact_paths" in body
 
 
 def test_get_run_route(monkeypatch) -> None:
@@ -44,3 +48,4 @@ def test_get_run_route(monkeypatch) -> None:
     response = client.get(f"/runs/{run_id}")
     assert response.status_code == 200
     assert response.json()["run_id"] == run_id
+    assert "artifact_paths" in response.json()

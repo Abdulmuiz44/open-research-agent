@@ -23,6 +23,22 @@ class ArtifactKind(str, Enum):
     REPORT_DRAFT = "report_draft"
 
 
+class FetchMethod(str, Enum):
+    HTTP = "http"
+    BROWSER = "browser"
+
+
+class FetchOutcome(str, Enum):
+    SUCCESS = "success"
+    HTTP_ERROR = "http_error"
+    TIMEOUT = "timeout"
+    NETWORK_ERROR = "network_error"
+    EMPTY_CONTENT = "empty_content"
+    BLOCKED = "blocked"
+    BROWSER_UNAVAILABLE = "browser_unavailable"
+    FAILED = "failed"
+
+
 class ResearchRequest(BaseModel):
     """Input payload for a bounded research run."""
 
@@ -80,9 +96,13 @@ class FetchedDocument(BaseModel):
     content_length: int | None = None
     text: str | None = None
     raw_html: str | None = None
-    fetch_method: str = "http"
+    fetch_method: FetchMethod = FetchMethod.HTTP
+    fetch_outcome: FetchOutcome = FetchOutcome.FAILED
     success: bool = False
     error: str | None = None
+    fallback_triggered: bool = False
+    fallback_reason: str | None = None
+    rendered_content_available: bool = False
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -108,6 +128,8 @@ class ExtractedDocument(BaseModel):
     title: str | None = None
     content: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+    extraction_quality: str = "unknown"
+    text_length: int = 0
     content_hash: str | None = None
     extracted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

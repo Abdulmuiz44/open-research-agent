@@ -5,7 +5,15 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import defaultdict
 
-from src.data.models import AnalysisArtifact, ExtractedDocument, ExtractedTable, ResearchRun, RunStatus, Source
+from src.data.models import (
+    AnalysisArtifact,
+    ExtractedDocument,
+    ExtractedTable,
+    FetchedDocument,
+    ResearchRun,
+    RunStatus,
+    Source,
+)
 
 
 class StorageBackend(ABC):
@@ -24,6 +32,10 @@ class StorageBackend(ABC):
         """Persist source metadata for a run."""
 
     @abstractmethod
+    def save_fetched_document(self, document: FetchedDocument) -> FetchedDocument:
+        """Persist fetched document metadata for a run."""
+
+    @abstractmethod
     def save_extracted_document(self, document: ExtractedDocument) -> ExtractedDocument:
         """Persist extracted document metadata for a run."""
 
@@ -34,6 +46,14 @@ class StorageBackend(ABC):
     @abstractmethod
     def save_analysis_artifact_metadata(self, artifact: AnalysisArtifact) -> AnalysisArtifact:
         """Persist analysis artifact metadata for a run."""
+
+    @abstractmethod
+    def set_run_artifact_paths(self, run_id: str, paths: dict[str, str]) -> None:
+        """Persist artifact path metadata for a run."""
+
+    @abstractmethod
+    def get_run_artifact_paths(self, run_id: str) -> dict[str, str]:
+        """Load artifact path metadata for a run."""
 
     @abstractmethod
     def get_run(self, run_id: str) -> ResearchRun | None:
@@ -50,6 +70,7 @@ class LocalStorageStub(StorageBackend):
     def __init__(self) -> None:
         self._runs: dict[str, ResearchRun] = {}
         self._artifacts: defaultdict[str, list[str]] = defaultdict(list)
+        self._artifact_paths: dict[str, dict[str, str]] = {}
 
     def create_run(self, run: ResearchRun) -> ResearchRun:
         self._runs[run.id] = run
@@ -66,6 +87,10 @@ class LocalStorageStub(StorageBackend):
         self._artifacts[source.run_id].append(source.id)
         return source
 
+    def save_fetched_document(self, document: FetchedDocument) -> FetchedDocument:
+        self._artifacts[document.run_id].append(document.id)
+        return document
+
     def save_extracted_document(self, document: ExtractedDocument) -> ExtractedDocument:
         self._artifacts[document.run_id].append(document.id)
         return document
@@ -77,6 +102,12 @@ class LocalStorageStub(StorageBackend):
     def save_analysis_artifact_metadata(self, artifact: AnalysisArtifact) -> AnalysisArtifact:
         self._artifacts[artifact.run_id].append(artifact.id)
         return artifact
+
+    def set_run_artifact_paths(self, run_id: str, paths: dict[str, str]) -> None:
+        self._artifact_paths[run_id] = paths
+
+    def get_run_artifact_paths(self, run_id: str) -> dict[str, str]:
+        return dict(self._artifact_paths.get(run_id, {}))
 
     def get_run(self, run_id: str) -> ResearchRun | None:
         return self._runs.get(run_id)

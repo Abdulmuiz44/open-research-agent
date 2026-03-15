@@ -37,7 +37,12 @@ class ResearchRunResponse(BaseModel):
     search_queries: list[str] = Field(default_factory=list)
     discovered_sources: int = 0
     fetched_sources: int = 0
+    fetched_http_count: int = 0
+    fetched_browser_count: int = 0
+    fallback_trigger_count: int = 0
     extracted_documents: int = 0
+    extraction_status_summary: dict[str, int] = Field(default_factory=dict)
+    artifact_paths: dict[str, str] = Field(default_factory=dict)
 
 
 class RunArtifactsResponse(BaseModel):
