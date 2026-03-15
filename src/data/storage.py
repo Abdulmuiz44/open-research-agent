@@ -1,4 +1,4 @@
-"""Storage interfaces for run and artifact persistence."""
+﻿"""Storage interfaces for run and artifact persistence."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from src.core.config import get_settings
+from src.core.exceptions import StorageError
 from src.data.models import (
     AnalysisArtifact,
     ExtractedDocument,
@@ -21,6 +22,29 @@ from src.data.models import (
     RunStatus,
     Source,
 )
+
+
+def _artifact_ref_key(relative_path: str) -> str | None:
+    if relative_path == "plan.json":
+        return "plan"
+    if relative_path == "sources.json":
+        return "sources"
+    if relative_path == "fetched/documents.json":
+        return "fetched"
+    if relative_path == "extracted/documents.json":
+        return "extracted"
+    if relative_path == "report/report.md":
+        return "report"
+    if relative_path == "analysis/final_result.json":
+        return "final_result"
+    if relative_path.startswith("analysis/") and relative_path.endswith(".json"):
+        stem = Path(relative_path).stem
+        return f"analysis_{stem.split('_', 1)[-1]}"
+    if relative_path.startswith("fetched/") and relative_path.endswith(".json"):
+        return f"fetched_{Path(relative_path).stem}"
+    if relative_path.startswith("extracted/") and relative_path.endswith(".json"):
+        return f"extracted_{Path(relative_path).stem}"
+    return None
 
 
 class StorageBackend(ABC):
@@ -42,6 +66,10 @@ class StorageBackend(ABC):
     def save_source_metadata(self, source: Source) -> Source:
         """Persist source metadata for a run."""
 
+    def save_source(self, source: Source) -> Source:
+        """Compatibility alias for older callers."""
+        return self.save_source_metadata(source)
+
     @abstractmethod
     def save_fetched_metadata(self, fetched: FetchedDocument) -> FetchedDocument:
         """Persist fetched document metadata for a run."""
@@ -49,6 +77,10 @@ class StorageBackend(ABC):
     @abstractmethod
     def save_extracted_document_metadata(self, document: ExtractedDocument) -> ExtractedDocument:
         """Persist extracted document metadata for a run."""
+
+    def save_extracted_document(self, document: ExtractedDocument) -> ExtractedDocument:
+        """Compatibility alias for older callers."""
+        return self.save_extracted_document_metadata(document)
 
     @abstractmethod
     def save_extracted_table_metadata(self, table: ExtractedTable) -> ExtractedTable:
@@ -82,6 +114,14 @@ class StorageBackend(ABC):
     def get_run_artifacts(self, run_id: str) -> list[str]:
         """List artifact paths associated with a run."""
 
+    def list_run_artifacts(self, run_id: str) -> list[str]:
+        """Compatibility alias for callers that expect list_* naming."""
+        return self.get_run_artifacts(run_id)
+
+    @abstractmethod
+    def get_run_artifact_refs(self, run_id: str) -> dict[str, str]:
+        """Retrieve key artifact references for a run."""
+
     @abstractmethod
     def list_runs(self, *, limit: int = 50, offset: int = 0) -> list[ResearchRun]:
         """List run metadata with simple bounded pagination."""
@@ -92,14 +132,20 @@ class LocalStorageStub(StorageBackend):
 
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = (base_dir or get_settings().runs_dir).resolve()
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise StorageError(f"Failed to initialize runs directory at {self.base_dir}: {exc}") from exc
         self._runs: dict[str, ResearchRun] = {}
         self._sources: defaultdict[str, list[Source]] = defaultdict(list)
         self._artifacts: defaultdict[str, list[str]] = defaultdict(list)
 
     def create_run(self, run: ResearchRun) -> ResearchRun:
         self._runs[run.id] = run
-        self._run_dir(run.id).mkdir(parents=True, exist_ok=True)
+        try:
+            self._run_dir(run.id).mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise StorageError(f"Failed to create run directory for {run.id}: {exc}") from exc
         return run
 
     def update_run_status(self, run_id: str, status: RunStatus, *, error_message: str | None = None) -> ResearchRun:
@@ -115,7 +161,7 @@ class LocalStorageStub(StorageBackend):
 
     def save_source_metadata(self, source: Source) -> Source:
         self._sources[source.run_id].append(source)
-        self._track(source.run_id, f"sources/{source.id}.json")
+        self.save_artifact_json(source.run_id, f"sources/{source.id}.json", source.model_dump(mode="json"))
         return source
 
     def save_fetched_metadata(self, fetched: FetchedDocument) -> FetchedDocument:
@@ -135,20 +181,27 @@ class LocalStorageStub(StorageBackend):
         return artifact
 
     def save_report_artifact_metadata(self, run_id: str, report_path: str) -> str:
-        _ = run_id
+        relative_path = self._relative_artifact_path(run_id, report_path)
+        self._track(run_id, relative_path)
         return report_path
 
     def save_artifact_json(self, run_id: str, relative_path: str, payload: dict[str, Any] | list[Any]) -> str:
         path = self._run_dir(run_id) / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        except OSError as exc:
+            raise StorageError(f"Failed to write JSON artifact {relative_path} for run {run_id}: {exc}") from exc
         self._track(run_id, relative_path)
         return str(path)
 
     def save_artifact_markdown(self, run_id: str, relative_path: str, markdown: str) -> str:
         path = self._run_dir(run_id) / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(markdown, encoding="utf-8")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(markdown, encoding="utf-8")
+        except OSError as exc:
+            raise StorageError(f"Failed to write markdown artifact {relative_path} for run {run_id}: {exc}") from exc
         self._track(run_id, relative_path)
         return str(path)
 
@@ -160,6 +213,14 @@ class LocalStorageStub(StorageBackend):
 
     def get_run_artifacts(self, run_id: str) -> list[str]:
         return list(self._artifacts[run_id])
+
+    def get_run_artifact_refs(self, run_id: str) -> dict[str, str]:
+        refs: dict[str, str] = {}
+        for relative_path in self._artifacts[run_id]:
+            key = _artifact_ref_key(relative_path)
+            if key is not None:
+                refs[key] = str((self._run_dir(run_id) / relative_path).resolve())
+        return refs
 
     def list_runs(self, *, limit: int = 50, offset: int = 0) -> list[ResearchRun]:
         if limit <= 0:
@@ -173,6 +234,13 @@ class LocalStorageStub(StorageBackend):
 
     def _run_dir(self, run_id: str) -> Path:
         return self.base_dir / run_id
+
+    def _relative_artifact_path(self, run_id: str, artifact_path: str) -> str:
+        path = Path(artifact_path)
+        try:
+            return path.resolve().relative_to(self._run_dir(run_id).resolve()).as_posix()
+        except ValueError:
+            return path.as_posix()
 
 
 class SQLiteStorageBackend(StorageBackend):
@@ -212,12 +280,12 @@ class SQLiteStorageBackend(StorageBackend):
 
     def save_source_metadata(self, source: Source) -> Source:
         payload = source.model_dump(mode="json")
+        self.save_artifact_json(source.run_id, f"sources/{source.id}.json", payload)
         with self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO sources (id, run_id, payload_json, created_at) VALUES (?, ?, ?, ?)",
                 (source.id, source.run_id, json.dumps(payload), source.discovered_at.isoformat()),
             )
-        self._track(source.run_id, f"sources/{source.id}.json")
         return source
 
     def save_fetched_metadata(self, fetched: FetchedDocument) -> FetchedDocument:
@@ -255,20 +323,26 @@ class SQLiteStorageBackend(StorageBackend):
         return artifact
 
     def save_report_artifact_metadata(self, run_id: str, report_path: str) -> str:
-        _ = run_id
+        self._track(run_id, self._relative_artifact_path(run_id, report_path))
         return report_path
 
     def save_artifact_json(self, run_id: str, relative_path: str, payload: dict[str, Any] | list[Any]) -> str:
         path = self._run_dir(run_id) / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        except OSError as exc:
+            raise StorageError(f"Failed to write JSON artifact {relative_path} for run {run_id}: {exc}") from exc
         self._track(run_id, relative_path)
         return str(path)
 
     def save_artifact_markdown(self, run_id: str, relative_path: str, markdown: str) -> str:
         path = self._run_dir(run_id) / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(markdown, encoding="utf-8")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(markdown, encoding="utf-8")
+        except OSError as exc:
+            raise StorageError(f"Failed to write markdown artifact {relative_path} for run {run_id}: {exc}") from exc
         self._track(run_id, relative_path)
         return str(path)
 
@@ -298,6 +372,14 @@ class SQLiteStorageBackend(StorageBackend):
         with self._connect() as conn:
             rows = conn.execute("SELECT relative_path FROM artifacts WHERE run_id = ? ORDER BY created_at, relative_path", (run_id,)).fetchall()
         return [row[0] for row in rows]
+
+    def get_run_artifact_refs(self, run_id: str) -> dict[str, str]:
+        refs: dict[str, str] = {}
+        for relative_path in self.get_run_artifacts(run_id):
+            key = _artifact_ref_key(relative_path)
+            if key is not None:
+                refs[key] = str((self._run_dir(run_id) / relative_path).resolve())
+        return refs
 
     def list_runs(self, *, limit: int = 50, offset: int = 0) -> list[ResearchRun]:
         bounded_limit = max(0, min(limit, 200))
@@ -379,3 +461,10 @@ class SQLiteStorageBackend(StorageBackend):
                 );
                 """
             )
+
+    def _relative_artifact_path(self, run_id: str, artifact_path: str) -> str:
+        path = Path(artifact_path)
+        try:
+            return path.resolve().relative_to(self._run_dir(run_id).resolve()).as_posix()
+        except ValueError:
+            return path.as_posix()

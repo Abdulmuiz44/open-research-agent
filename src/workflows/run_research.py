@@ -1,13 +1,16 @@
-"""Research workflow orchestration for bounded local runs."""
+﻿"""Research workflow orchestration for bounded local runs."""
 
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from src.analysis.report_builder import render_report_markdown
+from src.agents.reporter import ReporterAgent
 from src.core.config import get_settings
+from src.core.exceptions import WorkflowError
 from src.data.models import (
     AnalysisArtifact,
     ArtifactKind,
@@ -16,6 +19,7 @@ from src.data.models import (
     FetchedDocument,
     ResearchPlan,
     ResearchRun,
+    RunMetrics,
     RunStatus,
     Source,
 )
@@ -44,6 +48,7 @@ class RunResearchOutput(BaseModel):
     fetched_documents: list[FetchedDocument]
     extracted_documents: list[ExtractedDocument]
     analysis_artifacts: list[AnalysisArtifact]
+    run_metrics: RunMetrics
     report_markdown: str
     artifact_dir: str
     artifact_paths: list[str]
@@ -68,10 +73,10 @@ def run_research_workflow(
     payload: RunResearchInput,
     storage: StorageBackend | None = None,
 ) -> RunResearchOutput:
-    """Execute bounded local discovery, fetch, extract, and simple analysis/reporting."""
+    """Execute bounded local discovery, fetch, extract, and deterministic report generation."""
     backend = storage or LocalStorageStub()
     run = backend.create_run(initialize_run(payload))
-    backend.update_run_status(run.id, RunStatus.RUNNING)
+    run = backend.update_run_status(run.id, RunStatus.RUNNING)
 
     try:
         plan = _build_plan(payload)
@@ -84,23 +89,29 @@ def run_research_workflow(
 
         extractor = Extractor()
         extracted = [extractor.extract(doc) for doc in fetched if doc.success and (doc.raw_html or doc.text)]
+        metrics = RunMetrics(
+            source_count=len(discovered),
+            fetched_count=len([d for d in fetched if d.success]),
+            extracted_count=len(extracted),
+            findings_count=len(extracted),
+        )
 
+        initial_artifact_dir = str((Path(getattr(backend, "base_dir", get_settings().runs_dir)) / run.id).resolve())
         backend.save_artifact_json(
             run.id,
             "manifest.json",
             {
                 "run_id": run.id,
-                "objective": run.objective,
-                "status": "running",
+                "status": RunStatus.RUNNING.value,
+                "query": run.objective,
+                "artifact_dir": initial_artifact_dir,
                 "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
             },
         )
+
         plan_path = backend.save_plan_artifact(run.id, plan)
-        sources_path = backend.save_artifact_json(
-            run.id,
-            "sources.json",
-            [source.model_dump(mode="json") for source in discovered],
-        )
+        sources_path = backend.save_artifact_json(run.id, "sources.json", [source.model_dump(mode="json") for source in discovered])
         fetched_path = backend.save_artifact_json(
             run.id,
             "fetched/documents.json",
@@ -109,8 +120,8 @@ def run_research_workflow(
                     "source_id": doc.source_id,
                     "requested_url": str(doc.requested_url),
                     "final_url": str(doc.final_url) if doc.final_url else None,
+                    "status": "success" if doc.success else "failed",
                     "status_code": doc.status_code,
-                    "success": doc.success,
                     "error": doc.error,
                     "fetched_at": doc.fetched_at.isoformat(),
                 }
@@ -133,14 +144,12 @@ def run_research_workflow(
         for document in extracted:
             backend.save_extracted_document_metadata(document)
 
-        extracted_path = backend.save_artifact_json(
-            run.id,
-            "extracted/documents.json",
-            [document.model_dump(mode="json") for document in extracted],
-        )
+        extracted_path = backend.save_artifact_json(run.id, "extracted/documents.json", [document.model_dump(mode="json") for document in extracted])
 
-        fetched_success = len([d for d in fetched if d.success])
-        summary = f"Discovered {len(discovered)} sources, fetched {fetched_success}, extracted {len(extracted)} documents."
+        summary = (
+            f"Discovered {metrics.source_count} sources, fetched {metrics.fetched_count}, "
+            f"extracted {metrics.extracted_count} documents."
+        )
         artifact = AnalysisArtifact(
             run_id=run.id,
             kind=ArtifactKind.SUMMARY,
@@ -149,19 +158,21 @@ def run_research_workflow(
         )
         backend.save_analysis_artifact_metadata(artifact)
 
-        report_markdown = render_report_markdown(
+        reporter = ReporterAgent()
+        report = reporter.build_report(
             run_id=run.id,
             objective=run.objective,
-            summary=summary,
-            sources=discovered,
             extracted_documents=extracted,
-            findings=[summary],
-            limitations=["Analysis is deterministic and lightweight in this MVP stage."],
+            analysis_artifacts=[artifact],
+            sources=discovered,
+            generated_at=datetime.now(UTC),
         )
-        report_path = backend.save_artifact_markdown(run.id, "report/report.md", report_markdown)
+        report_path = backend.save_artifact_markdown(run.id, "report/report.md", report.markdown)
         backend.save_report_artifact_metadata(run.id, report_path)
 
         run = backend.update_run_status(run.id, RunStatus.COMPLETED)
+        artifact_dir = str((Path(getattr(backend, "base_dir", get_settings().runs_dir)) / run.id).resolve())
+
         final_result_path = backend.save_artifact_json(
             run.id,
             "analysis/final_result.json",
@@ -169,11 +180,17 @@ def run_research_workflow(
                 "run_id": run.id,
                 "status": run.status.value,
                 "query": run.objective,
-                "discovered_sources": len(discovered),
-                "fetched_sources": fetched_success,
-                "extracted_documents": len(extracted),
-                "artifact_count": len(backend.get_run_artifacts(run.id)),
+                "source_count": metrics.source_count,
+                "fetched_count": metrics.fetched_count,
+                "extracted_count": metrics.extracted_count,
+                "findings_count": metrics.findings_count,
+                "artifact_dir": artifact_dir,
                 "report_path": report_path,
+                "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
+                "discovered_sources": metrics.source_count,
+                "fetched_sources": metrics.fetched_count,
+                "extracted_documents": metrics.extracted_count,
             },
         )
         backend.save_artifact_json(
@@ -181,8 +198,14 @@ def run_research_workflow(
             "manifest.json",
             {
                 "run_id": run.id,
-                "objective": run.objective,
                 "status": run.status.value,
+                "query": run.objective,
+                "source_count": metrics.source_count,
+                "fetched_count": metrics.fetched_count,
+                "extracted_count": metrics.extracted_count,
+                "findings_count": metrics.findings_count,
+                "artifact_dir": artifact_dir,
+                "report_path": report_path,
                 "created_at": run.created_at.isoformat(),
                 "updated_at": run.updated_at.isoformat(),
                 "paths": {
@@ -196,14 +219,18 @@ def run_research_workflow(
             },
         )
 
-        artifact_refs = {
-            "plan": plan_path,
-            "sources": sources_path,
-            "fetched": fetched_path,
-            "extracted": extracted_path,
-            "report": report_path,
-            "final_result": final_result_path,
-        }
+        artifact_refs = backend.get_run_artifact_refs(run.id)
+        artifact_refs.update(
+            {
+                "plan": plan_path,
+                "sources": sources_path,
+                "fetched": fetched_path,
+                "extracted": extracted_path,
+                "report": report_path,
+                "final_result": final_result_path,
+            }
+        )
+
         return RunResearchOutput(
             run=run,
             plan=plan,
@@ -212,11 +239,12 @@ def run_research_workflow(
             fetched_documents=fetched,
             extracted_documents=extracted,
             analysis_artifacts=[artifact],
-            report_markdown=report_markdown,
-            artifact_dir=str((getattr(backend, "base_dir", get_settings().runs_dir) / run.id).resolve()),
-            artifact_paths=backend.get_run_artifacts(run.id),
+            run_metrics=metrics,
+            report_markdown=report.markdown,
+            artifact_dir=artifact_dir,
+            artifact_paths=backend.list_run_artifacts(run.id),
             artifact_refs=artifact_refs,
         )
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover
         backend.update_run_status(run.id, RunStatus.FAILED, error_message=str(exc))
-        raise
+        raise WorkflowError(f"Run {run.id} failed: {exc}") from exc

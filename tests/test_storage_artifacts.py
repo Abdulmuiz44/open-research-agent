@@ -1,8 +1,8 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from src.data.models import (
-    ArtifactKind,
     AnalysisArtifact,
+    ArtifactKind,
     ExtractedDocument,
     FetchedDocument,
     ResearchPlan,
@@ -24,6 +24,7 @@ def _exercise_backend(storage) -> None:
     source = Source(id="s1", run_id=run.id, url="https://example.com", domain="example.com", title="Example")
     saved_source = storage.save_source_metadata(source)
     assert saved_source.id == source.id
+    assert storage.get_run_sources(run.id)[0].id == source.id
 
     fetched = FetchedDocument(
         id="f1",
@@ -62,14 +63,14 @@ def _exercise_backend(storage) -> None:
     report_path = storage.save_artifact_markdown(run.id, "report/report.md", "# Report")
     storage.save_report_artifact_metadata(run.id, report_path)
 
-    artifacts = storage.get_run_artifacts(run.id)
+    artifacts = storage.list_run_artifacts(run.id)
     assert "plan.json" in artifacts
     assert "report/report.md" in artifacts
     assert any(path.startswith("fetched/") for path in artifacts)
 
-    sources = storage.get_run_sources(run.id)
-    assert len(sources) == 1
-    assert sources[0].id == source.id
+    refs = storage.get_run_artifact_refs(run.id)
+    assert refs["plan"].endswith("plan.json")
+    assert refs["report"].endswith("report\\report.md") or refs["report"].endswith("report/report.md")
 
     listed_runs = storage.list_runs(limit=10, offset=0)
     assert listed_runs
