@@ -38,9 +38,17 @@ class ResearchRunResponse(BaseModel):
     discovered_sources: int = 0
     fetched_sources: int = 0
     extracted_documents: int = 0
+    finding_count: int = 0
     artifact_count: int = 0
     artifact_dir: str | None = None
+    artifact_summary: dict[str, int] = Field(default_factory=dict)
     report_path: str | None = None
+
+
+class ResearchRunListResponse(BaseModel):
+    """Bounded list response for runs."""
+
+    runs: list[ResearchRunResponse] = Field(default_factory=list)
 
 
 class RunArtifactsResponse(BaseModel):
