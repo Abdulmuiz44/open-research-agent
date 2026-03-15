@@ -1,9 +1,9 @@
-"""Research workflow orchestration for bounded local runs."""
+﻿"""Research workflow orchestration for bounded local runs."""
 
 from __future__ import annotations
 
 import asyncio
-import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -11,15 +11,16 @@ from pydantic import BaseModel, Field
 from src.agents.analyst import AnalystAgent
 from src.agents.reporter import ReporterAgent
 from src.core.config import get_settings
+from src.core.exceptions import WorkflowError
 from src.data.models import (
     AnalysisArtifact,
-    AnalysisResult,
     ArtifactKind,
     CandidateSource,
     ExtractedDocument,
     FetchedDocument,
     ResearchPlan,
     ResearchRun,
+    RunMetrics,
     RunStatus,
     Source,
 )
@@ -31,31 +32,27 @@ from src.web.extractor import Extractor
 
 
 class RunResearchInput(BaseModel):
-    """Inputs required to kick off a bounded research workflow run."""
-
     objective: str = Field(min_length=3)
     constraints: list[str] = Field(default_factory=list)
     max_sources: int = Field(default=10, ge=1, le=100)
 
 
 class RunResearchOutput(BaseModel):
-    """Top-level workflow output with stage artifacts."""
-
     run: ResearchRun
     plan: ResearchPlan
     search_queries: list[str]
     discovered_sources: list[CandidateSource]
     fetched_documents: list[FetchedDocument]
     extracted_documents: list[ExtractedDocument]
-    analysis: AnalysisResult
     analysis_artifacts: list[AnalysisArtifact]
+    run_metrics: RunMetrics
     report_markdown: str
     artifact_dir: str
-    report_path: str
+    artifact_paths: list[str]
+    artifact_refs: dict[str, str]
 
 
 def initialize_run(payload: RunResearchInput) -> ResearchRun:
-    """Create initial run metadata before stage orchestration."""
     return ResearchRun(objective=payload.objective)
 
 
@@ -68,103 +65,157 @@ def _build_plan(payload: RunResearchInput) -> ResearchPlan:
     )
 
 
-def _save_analysis_artifacts(run_id: str, analysis: AnalysisResult) -> tuple[str, str]:
-    settings = get_settings()
-    run_dir = Path(settings.runs_dir) / run_id
-    analysis_dir = run_dir / "analysis"
-    analysis_dir.mkdir(parents=True, exist_ok=True)
-
-    (analysis_dir / "findings.json").write_text(
-        json.dumps([item.model_dump(mode="json") for item in analysis.findings], indent=2),
-        encoding="utf-8",
-    )
-    (analysis_dir / "themes.json").write_text(
-        json.dumps([item.model_dump(mode="json") for item in analysis.themes], indent=2),
-        encoding="utf-8",
-    )
-    (analysis_dir / "contradictions.json").write_text(
-        json.dumps([item.model_dump(mode="json") for item in analysis.contradictions], indent=2),
-        encoding="utf-8",
-    )
-    (analysis_dir / "analysis_summary.json").write_text(
-        json.dumps(analysis.summary.model_dump(mode="json"), indent=2),
-        encoding="utf-8",
-    )
-
-    return str(analysis_dir), str(run_dir / "report.md")
-
-
-def run_research_workflow(
-    payload: RunResearchInput,
-    storage: StorageBackend | None = None,
-) -> RunResearchOutput:
-    """Execute bounded local discovery, fetch, extract, deterministic analysis, and reporting."""
+def run_research_workflow(payload: RunResearchInput, storage: StorageBackend | None = None) -> RunResearchOutput:
     backend = storage or LocalStorageStub()
     run = backend.create_run(initialize_run(payload))
-    backend.update_run_status(run.id, RunStatus.RUNNING)
+    run = backend.update_run_status(run.id, RunStatus.RUNNING)
 
     try:
         plan = _build_plan(payload)
         queries = build_queries(plan)
-
         provider = build_search_provider(get_settings())
         crawler = Crawler(provider)
         discovered = crawler.discover(run.id, queries)
-
         fetched = asyncio.run(crawler.fetch(discovered))
+
         extractor = Extractor()
         extracted = [extractor.extract(doc) for doc in fetched if doc.success and (doc.raw_html or doc.text)]
-
-        for source in discovered:
-            backend.save_source(
-                Source(
-                    id=source.id,
-                    run_id=source.run_id,
-                    url=source.url,
-                    domain=source.domain,
-                    title=source.title,
-                )
-            )
-        for document in extracted:
-            backend.save_extracted_document(document)
-
         analysis = AnalystAgent().analyze_documents(extracted)
+        metrics = RunMetrics(
+            source_count=len(discovered),
+            fetched_count=len([doc for doc in fetched if doc.success]),
+            extracted_count=len(extracted),
+            findings_count=len(analysis.findings),
+        )
 
-        artifacts = [
-            AnalysisArtifact(
-                run_id=run.id,
-                kind=ArtifactKind.SUMMARY,
-                summary=analysis.summary.summary,
-                evidence_ids=[doc.id for doc in extracted],
-            ),
-            AnalysisArtifact(
-                run_id=run.id,
-                kind=ArtifactKind.FINDINGS,
-                summary=f"{len(analysis.findings)} findings",
-                evidence_ids=[doc.id for doc in extracted],
-            ),
-            AnalysisArtifact(
-                run_id=run.id,
-                kind=ArtifactKind.THEMES,
-                summary=f"{len(analysis.themes)} themes",
-                evidence_ids=[doc.id for doc in extracted],
-            ),
-            AnalysisArtifact(
-                run_id=run.id,
-                kind=ArtifactKind.CONTRADICTIONS,
-                summary=f"{len(analysis.contradictions)} contradictions",
-                evidence_ids=[doc.id for doc in extracted],
-            ),
+        artifact_dir = str((Path(getattr(backend, "base_dir", get_settings().runs_dir)) / run.id).resolve())
+        backend.save_artifact_json(
+            run.id,
+            "manifest.json",
+            {
+                "run_id": run.id,
+                "status": RunStatus.RUNNING.value,
+                "query": run.objective,
+                "artifact_dir": artifact_dir,
+                "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
+            },
+        )
+        plan_path = backend.save_plan_artifact(run.id, plan)
+        sources_path = backend.save_artifact_json(run.id, "sources.json", [source.model_dump(mode="json") for source in discovered])
+        fetched_path = backend.save_artifact_json(
+            run.id,
+            "fetched/documents.json",
+            [
+                {
+                    "source_id": doc.source_id,
+                    "requested_url": str(doc.requested_url),
+                    "final_url": str(doc.final_url) if doc.final_url else None,
+                    "status": "success" if doc.success else "failed",
+                    "status_code": doc.status_code,
+                    "error": doc.error,
+                    "fetched_at": doc.fetched_at.isoformat(),
+                }
+                for doc in fetched
+            ],
+        )
+        for fetched_document in fetched:
+            backend.save_fetched_metadata(fetched_document)
+        for source in discovered:
+            backend.save_source_metadata(Source(id=source.id, run_id=source.run_id, url=source.url, domain=source.domain, title=source.title))
+        for document in extracted:
+            backend.save_extracted_document_metadata(document)
+        extracted_path = backend.save_artifact_json(run.id, "extracted/documents.json", [document.model_dump(mode="json") for document in extracted])
+
+        findings_path = backend.save_artifact_json(run.id, "analysis/findings.json", [finding.model_dump(mode="json") for finding in analysis.findings])
+        themes_path = backend.save_artifact_json(run.id, "analysis/themes.json", [theme.model_dump(mode="json") for theme in analysis.themes])
+        contradictions_path = backend.save_artifact_json(run.id, "analysis/contradictions.json", [item.model_dump(mode="json") for item in analysis.contradictions])
+        analysis_summary_path = backend.save_artifact_json(run.id, "analysis/analysis_summary.json", analysis.summary.model_dump(mode="json"))
+
+        analysis_artifacts = [
+            AnalysisArtifact(run_id=run.id, kind=ArtifactKind.SUMMARY, summary=analysis.summary.summary, evidence_ids=[doc.id for doc in extracted]),
+            AnalysisArtifact(run_id=run.id, kind=ArtifactKind.FINDINGS, summary=f"{len(analysis.findings)} findings", evidence_ids=[doc.id for doc in extracted]),
         ]
-        for artifact in artifacts:
+        for artifact in analysis_artifacts:
             backend.save_analysis_artifact_metadata(artifact)
 
-        report = ReporterAgent().build_report(run_id=run.id, objective=run.objective, analysis=analysis)
-
-        artifact_dir, report_path = _save_analysis_artifacts(run.id, analysis)
-        Path(report_path).write_text(report.markdown, encoding="utf-8")
+        report = ReporterAgent().build_report(
+            run_id=run.id,
+            objective=run.objective,
+            extracted_documents=extracted,
+            analysis_artifacts=analysis_artifacts,
+            sources=discovered,
+            generated_at=datetime.now(UTC),
+        )
+        report_path = backend.save_artifact_markdown(run.id, "report/report.md", report.markdown)
+        backend.save_report_artifact_metadata(run.id, report_path)
 
         run = backend.update_run_status(run.id, RunStatus.COMPLETED)
+        final_result_path = backend.save_artifact_json(
+            run.id,
+            "analysis/final_result.json",
+            {
+                "run_id": run.id,
+                "status": run.status.value,
+                "query": run.objective,
+                "source_count": metrics.source_count,
+                "fetched_count": metrics.fetched_count,
+                "extracted_count": metrics.extracted_count,
+                "findings_count": metrics.findings_count,
+                "artifact_dir": artifact_dir,
+                "report_path": report_path,
+                "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
+                "discovered_sources": metrics.source_count,
+                "fetched_sources": metrics.fetched_count,
+                "extracted_documents": metrics.extracted_count,
+            },
+        )
+        backend.save_artifact_json(
+            run.id,
+            "manifest.json",
+            {
+                "run_id": run.id,
+                "status": run.status.value,
+                "query": run.objective,
+                "source_count": metrics.source_count,
+                "fetched_count": metrics.fetched_count,
+                "extracted_count": metrics.extracted_count,
+                "findings_count": metrics.findings_count,
+                "artifact_dir": artifact_dir,
+                "report_path": report_path,
+                "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
+                "paths": {
+                    "plan": plan_path,
+                    "sources": sources_path,
+                    "fetched": fetched_path,
+                    "extracted": extracted_path,
+                    "findings": findings_path,
+                    "themes": themes_path,
+                    "contradictions": contradictions_path,
+                    "analysis_summary": analysis_summary_path,
+                    "report": report_path,
+                    "final_result": final_result_path,
+                },
+            },
+        )
+
+        artifact_refs = backend.get_run_artifact_refs(run.id)
+        artifact_refs.update(
+            {
+                "plan": plan_path,
+                "sources": sources_path,
+                "fetched": fetched_path,
+                "extracted": extracted_path,
+                "findings": findings_path,
+                "themes": themes_path,
+                "contradictions": contradictions_path,
+                "analysis_summary": analysis_summary_path,
+                "report": report_path,
+                "final_result": final_result_path,
+            }
+        )
         return RunResearchOutput(
             run=run,
             plan=plan,
@@ -172,12 +223,13 @@ def run_research_workflow(
             discovered_sources=discovered,
             fetched_documents=fetched,
             extracted_documents=extracted,
-            analysis=analysis,
-            analysis_artifacts=artifacts,
+            analysis_artifacts=analysis_artifacts,
+            run_metrics=metrics,
             report_markdown=report.markdown,
             artifact_dir=artifact_dir,
-            report_path=report_path,
+            artifact_paths=backend.list_run_artifacts(run.id),
+            artifact_refs=artifact_refs,
         )
-    except Exception as exc:
-        run = backend.update_run_status(run.id, RunStatus.FAILED, error_message=str(exc))
-        raise
+    except Exception as exc:  # pragma: no cover
+        backend.update_run_status(run.id, RunStatus.FAILED, error_message=str(exc))
+        raise WorkflowError(f"Run {run.id} failed: {exc}") from exc
