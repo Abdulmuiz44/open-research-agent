@@ -1,83 +1,86 @@
 # Open Research Agent
 
-Open Research Agent is an open-source, Python-first system for bounded research workflows over web and local data sources.
+Open Research Agent is a Python-first, CLI-first system for bounded research workflows over web sources with local artifact persistence.
 
-## Current Status
+## Status
 
-**Bounded Browser Fallback and Extraction Robustness Implemented** — the pipeline now runs HTTP-first fetch with selective single-page browser fallback, improved deterministic extraction on noisy/dynamic pages, and persisted fallback/extraction metadata artifacts.
+**v0.1.0 MVP Hardened**
 
-## What is Implemented Now
+## What it does today
 
-- Deterministic plan-to-query generation.
-- Real search provider abstraction with a local DuckDuckGo HTML provider.
-- Source ranking and URL deduplication heuristics.
-- Real HTTP fetch layer with timeout/retry/user-agent controls and fetch metadata capture.
-- **Bounded browser fallback path** for recovery when HTTP output is blocked, near-empty, or JS-heavy.
-- **Single-page browser render behavior** with strict timeout/wait bounds and no autonomous navigation.
-- Improved extraction robustness:
-  - stronger title extraction (`og:title`, `<title>`, then `<h1>`)
-  - metadata enrichment (canonical URL, description, author, published time)
-  - boilerplate line filtering and bounded deterministic content cleanup
-  - extraction quality/text-length indicators
-- Artifact writing per run for fetch metadata, extraction summaries, and generated report.
-- End-to-end workflow orchestration from objective → queries → discovery → fetch/fallback → extraction → simple summary/report.
-- CLI `research` command now reports HTTP/browser/fallback counts and artifact paths.
-- API `POST /runs` now returns bounded fallback and extraction summary metadata.
-- Local in-memory run storage persists run metadata and artifact path references for this phase.
+- Accepts a bounded objective and constraints.
+- Generates deterministic research queries.
+- Discovers sources using a provider abstraction.
+- Fetches pages with HTTP-first behavior and bounded browser fallback decisioning.
+- Extracts normalized content and metadata from fetched pages.
+- Produces deterministic report artifacts and JSON run summaries.
+- Persists run metadata and artifact references for inspection.
+- Exposes CLI and API run retrieval and artifact inspection paths.
 
-## What Remains Intentionally Deferred
+## Implemented MVP surface
 
-- Full crawler orchestration and autonomous browsing.
-- Multi-page browser automation and interaction loops (click/scroll/session automation).
-- Login/session handling.
-- LLM-driven planning/ranking/analysis changes in this step.
-- Durable database-backed persistence.
-- Vector search and advanced retrieval.
-- Advanced extraction outside scope (PDF parsing, OCR, site-specific heavy strategies).
+### CLI
 
-## Browser Fallback Trigger Rules
+- `ora health`
+- `ora research "<objective>" --max-sources 6`
+- `ora get <run_id>`
+- `ora list`
+- `ora artifacts <run_id>`
 
-Browser fallback is optional and bounded. It is triggered only when enabled and HTTP results are clearly weak:
+### API
 
-- blocked-like HTTP statuses (`401`, `403`, `429`, `503`)
-- empty HTML
-- near-empty extracted visible text
-- JS-heavy markers combined with weak visible text
+- `GET /health`
+- `GET /ready`
+- `POST /runs`
+- `GET /runs`
+- `GET /runs/{run_id}`
+- `GET /runs/{run_id}/artifacts`
 
-HTTP remains the preferred primary path.
+## Run data and artifacts
 
-## Environment Variables
+- Run metadata storage: in-memory run index + local run directories.
+- Run artifact root: `outputs/runs/<run_id>/`
+- Key artifacts:
+  - `manifest.json`
+  - `plan.json`
+  - `sources.json`
+  - `fetched/documents.json`
+  - `extracted/documents.json`
+  - `analysis/final_result.json`
+  - `report/report.md`
 
-All runtime config uses `ORA_` prefix:
+## Health/readiness behavior
 
-- `ORA_SEARCH_PROVIDER` (default: `duckduckgo_html`)
-- `ORA_SEARCH_ENDPOINT` (default: `https://duckduckgo.com/html/`)
-- `ORA_REQUEST_TIMEOUT_SECONDS` (default: `10.0`)
-- `ORA_REQUEST_RETRIES` (default: `2`)
-- `ORA_USER_AGENT` (default: `open-research-agent/0.1 (+https://example.local)`)
-- `ORA_MAX_SOURCES_PER_RUN` (default: `8`)
-- `ORA_MAX_FETCH_PER_RUN` (default: `6`)
-- `ORA_BROWSER_FALLBACK_ENABLED` (default: `true`)
-- `ORA_BROWSER_FALLBACK_MIN_TEXT_CHARS` (default: `200`)
-- `ORA_BROWSER_FALLBACK_TIMEOUT_SECONDS` (default: `8.0`)
-- `ORA_BROWSER_FALLBACK_WAIT_SECONDS` (default: `1.5`)
+- `/health` reports service metadata.
+- `/ready` verifies local runtime readiness with resolved run storage path.
 
-## Local Setup
+## Local packaged run behavior
 
-1. Install Python 3.11 and `uv`.
-2. Install dependencies:
-   - `uv sync --extra dev`
-3. Optional `.env` overrides (example):
-   - `ORA_ENVIRONMENT=development`
-   - `ORA_LOG_LEVEL=INFO`
-   - `ORA_SEARCH_PROVIDER=duckduckgo_html`
-
-## Run Locally
-
+- Install: `uv sync --extra dev`
 - CLI health: `uv run ora health`
-- CLI research flow:
-  - `uv run ora research "Compare open-source HTML extraction libraries" --max-sources 6`
-- API server:
-  - `uv run uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --reload`
-- API run execution:
-  - `curl -X POST http://127.0.0.1:8000/runs -H 'content-type: application/json' -d '{"objective":"Compare open-source HTML extraction libraries","max_sources":6}'`
+- Run research: `uv run ora research "Compare open-source HTML extraction libraries" --max-sources 6`
+- API: `uv run uvicorn apps.api.main:app --host 127.0.0.1 --port 8000`
+
+## Deferred beyond v0.1.0
+
+- Full crawler automation and autonomous browsing.
+- Browser automation implementation details (placeholder fetch path only).
+- LLM-generated prose reporting.
+- Vector search, OCR, and PDF parsing.
+- Distributed persistence/infrastructure.
+
+## Current limitations
+
+- Search results vary by remote provider behavior.
+- Browser fetch execution is intentionally deferred.
+- Extraction is intentionally lightweight and deterministic.
+- Persistence is local MVP storage, not production-grade.
+
+## Release baseline
+
+See:
+
+- `CHANGELOG.md`
+- `docs/RELEASE_NOTES_V0_1.md`
+- `docs/RELEASE_CHECKLIST.md`
+- `docs/TESTING.md`

@@ -3,22 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from src.agents.reporter import ReporterAgent
 from src.core.config import get_settings
+from src.core.exceptions import WorkflowError
 from src.data.models import (
     AnalysisArtifact,
     ArtifactKind,
     CandidateSource,
     ExtractedDocument,
-    FetchMethod,
     FetchedDocument,
     ResearchPlan,
     ResearchRun,
+    RunMetrics,
     RunStatus,
     Source,
 )
@@ -47,12 +48,11 @@ class RunResearchOutput(BaseModel):
     fetched_documents: list[FetchedDocument]
     extracted_documents: list[ExtractedDocument]
     analysis_artifacts: list[AnalysisArtifact]
+    run_metrics: RunMetrics
     report_markdown: str
-    fetched_http_count: int = 0
-    fetched_browser_count: int = 0
-    fallback_trigger_count: int = 0
-    extraction_status_summary: dict[str, int] = Field(default_factory=dict)
-    artifact_paths: dict[str, str] = Field(default_factory=dict)
+    artifact_dir: str
+    artifact_paths: list[str]
+    artifact_refs: dict[str, str]
 
 
 def initialize_run(payload: RunResearchInput) -> ResearchRun:
@@ -69,67 +69,14 @@ def _build_plan(payload: RunResearchInput) -> ResearchPlan:
     )
 
 
-def _save_run_artifacts(
-    run_id: str,
-    fetched: list[FetchedDocument],
-    extracted: list[ExtractedDocument],
-    report_markdown: str,
-) -> dict[str, str]:
-    settings = get_settings()
-    run_dir = Path(settings.artifacts_dir) / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    fetch_path = run_dir / "fetch_metadata.json"
-    extraction_path = run_dir / "extraction_summary.json"
-    report_path = run_dir / "report.md"
-
-    fetch_payload = [
-        {
-            "source_id": doc.source_id,
-            "requested_url": str(doc.requested_url),
-            "final_url": str(doc.final_url) if doc.final_url else None,
-            "fetch_method": doc.fetch_method,
-            "fetch_outcome": doc.fetch_outcome,
-            "fallback_triggered": doc.fallback_triggered,
-            "fallback_reason": doc.fallback_reason,
-            "status_code": doc.status_code,
-            "rendered_content_available": doc.rendered_content_available,
-            "content_length": doc.content_length,
-            "error": doc.error,
-        }
-        for doc in fetched
-    ]
-    extraction_payload = [
-        {
-            "source_id": doc.source_id,
-            "title": doc.title,
-            "text_length": doc.text_length,
-            "extraction_quality": doc.extraction_quality,
-            "metadata": doc.metadata,
-        }
-        for doc in extracted
-    ]
-
-    fetch_path.write_text(json.dumps(fetch_payload, indent=2, default=str), encoding="utf-8")
-    extraction_path.write_text(json.dumps(extraction_payload, indent=2, default=str), encoding="utf-8")
-    report_path.write_text(report_markdown, encoding="utf-8")
-
-    return {
-        "artifact_dir": str(run_dir),
-        "fetch_metadata": str(fetch_path),
-        "extraction_summary": str(extraction_path),
-        "report": str(report_path),
-    }
-
-
 def run_research_workflow(
     payload: RunResearchInput,
     storage: StorageBackend | None = None,
 ) -> RunResearchOutput:
-    """Execute bounded local discovery, fetch, extract, and simple analysis/reporting."""
+    """Execute bounded local discovery, fetch, extract, and deterministic report generation."""
     backend = storage or LocalStorageStub()
     run = backend.create_run(initialize_run(payload))
-    backend.update_run_status(run.id, RunStatus.RUNNING)
+    run = backend.update_run_status(run.id, RunStatus.RUNNING)
 
     try:
         plan = _build_plan(payload)
@@ -138,34 +85,59 @@ def run_research_workflow(
         provider = build_search_provider(get_settings())
         crawler = Crawler(provider)
         discovered = crawler.discover(run.id, queries)
-
         fetched = asyncio.run(crawler.fetch(discovered))
+
         extractor = Extractor()
         extracted = [extractor.extract(doc) for doc in fetched if doc.success and (doc.raw_html or doc.text)]
+        metrics = RunMetrics(
+            source_count=len(discovered),
+            fetched_count=len([d for d in fetched if d.success]),
+            extracted_count=len(extracted),
+            findings_count=len(extracted),
+        )
+
+        backend.save_artifact_json(
+            run.id,
+            "manifest.json",
+            {
+                "run_id": run.id,
+                "status": RunStatus.RUNNING.value,
+                "query": run.objective,
+                "artifact_dir": str((Path(backend.base_dir) / run.id).resolve()) if isinstance(backend, LocalStorageStub) else None,
+                "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
+            },
+        )
+
+        plan_path = backend.save_artifact_json(run.id, "plan.json", plan.model_dump(mode="json"))
+        sources_path = backend.save_artifact_json(run.id, "sources.json", [source.model_dump(mode="json") for source in discovered])
+        fetched_path = backend.save_artifact_json(
+            run.id,
+            "fetched/documents.json",
+            [
+                {
+                    "source_id": doc.source_id,
+                    "requested_url": str(doc.requested_url),
+                    "final_url": str(doc.final_url) if doc.final_url else None,
+                    "status": "success" if doc.success else "failed",
+                    "status_code": doc.status_code,
+                    "error": doc.error,
+                    "fetched_at": doc.fetched_at.isoformat(),
+                }
+                for doc in fetched
+            ],
+        )
 
         for source in discovered:
-            backend.save_source(
-                Source(
-                    id=source.id,
-                    run_id=source.run_id,
-                    url=source.url,
-                    domain=source.domain,
-                    title=source.title,
-                )
-            )
-        for document in fetched:
-            backend.save_fetched_document(document)
+            backend.save_source(Source(id=source.id, run_id=source.run_id, url=source.url, domain=source.domain, title=source.title))
         for document in extracted:
             backend.save_extracted_document(document)
 
-        fetched_http_count = len([doc for doc in fetched if doc.fetch_method == FetchMethod.HTTP])
-        fetched_browser_count = len([doc for doc in fetched if doc.fetch_method == FetchMethod.BROWSER])
-        fallback_trigger_count = len([doc for doc in fetched if doc.fallback_triggered])
-        extraction_status_summary = dict(Counter([doc.extraction_quality for doc in extracted]))
+        extracted_path = backend.save_artifact_json(run.id, "extracted/documents.json", [document.model_dump(mode="json") for document in extracted])
 
         summary = (
-            f"Discovered {len(discovered)} sources, fetched {len([d for d in fetched if d.success])}, "
-            f"browser fallback used for {fallback_trigger_count}, extracted {len(extracted)} documents."
+            f"Discovered {metrics.source_count} sources, fetched {metrics.fetched_count}, "
+            f"extracted {metrics.extracted_count} documents."
         )
         artifact = AnalysisArtifact(
             run_id=run.id,
@@ -175,17 +147,77 @@ def run_research_workflow(
         )
         backend.save_analysis_artifact_metadata(artifact)
 
-        report_lines = [
-            f"# Research Report\n\nObjective: {run.objective}",
-            f"\n## Method\n- queries: {', '.join(queries)}",
-            f"\n## Findings\n- {summary}",
-            "\n## Limitations\n- Workflow is bounded to HTTP-first fetch with single-page browser fallback.",
-        ]
-        report_markdown = "\n".join(report_lines)
-        artifact_paths = _save_run_artifacts(run.id, fetched, extracted, report_markdown)
-        backend.set_run_artifact_paths(run.id, artifact_paths)
+        reporter = ReporterAgent()
+        report = reporter.build_report(
+            run_id=run.id,
+            objective=run.objective,
+            extracted_documents=extracted,
+            analysis_artifacts=[artifact],
+            sources=discovered,
+            generated_at=datetime.now(UTC),
+        )
+        report_path = backend.save_artifact_markdown(run.id, "report/report.md", report.markdown)
 
         run = backend.update_run_status(run.id, RunStatus.COMPLETED)
+        artifact_dir = str((Path(backend.base_dir) / run.id).resolve()) if isinstance(backend, LocalStorageStub) else str((get_settings().runs_dir / run.id).resolve())
+
+        final_result_path = backend.save_artifact_json(
+            run.id,
+            "analysis/final_result.json",
+            {
+                "run_id": run.id,
+                "status": run.status.value,
+                "query": run.objective,
+                "source_count": metrics.source_count,
+                "fetched_count": metrics.fetched_count,
+                "extracted_count": metrics.extracted_count,
+                "findings_count": metrics.findings_count,
+                "artifact_dir": artifact_dir,
+                "report_path": report_path,
+                "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
+                # compatibility aliases
+                "discovered_sources": metrics.source_count,
+                "fetched_sources": metrics.fetched_count,
+                "extracted_documents": metrics.extracted_count,
+            },
+        )
+        backend.save_artifact_json(
+            run.id,
+            "manifest.json",
+            {
+                "run_id": run.id,
+                "status": run.status.value,
+                "query": run.objective,
+                "source_count": metrics.source_count,
+                "fetched_count": metrics.fetched_count,
+                "extracted_count": metrics.extracted_count,
+                "findings_count": metrics.findings_count,
+                "artifact_dir": artifact_dir,
+                "report_path": report_path,
+                "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
+                "paths": {
+                    "plan": plan_path,
+                    "sources": sources_path,
+                    "fetched": fetched_path,
+                    "extracted": extracted_path,
+                    "report": report_path,
+                    "final_result": final_result_path,
+                },
+            },
+        )
+
+        artifact_refs = backend.get_run_artifact_refs(run.id)
+        artifact_refs.update({
+            "plan": plan_path,
+            "sources": sources_path,
+            "fetched": fetched_path,
+            "extracted": extracted_path,
+            "report": report_path,
+            "final_result": final_result_path,
+        })
+
         return RunResearchOutput(
             run=run,
             plan=plan,
@@ -194,13 +226,12 @@ def run_research_workflow(
             fetched_documents=fetched,
             extracted_documents=extracted,
             analysis_artifacts=[artifact],
-            report_markdown=report_markdown,
-            fetched_http_count=fetched_http_count,
-            fetched_browser_count=fetched_browser_count,
-            fallback_trigger_count=fallback_trigger_count,
-            extraction_status_summary=extraction_status_summary,
-            artifact_paths=artifact_paths,
+            run_metrics=metrics,
+            report_markdown=report.markdown,
+            artifact_dir=artifact_dir,
+            artifact_paths=backend.list_run_artifacts(run.id),
+            artifact_refs=artifact_refs,
         )
-    except Exception:
-        run = backend.update_run_status(run.id, RunStatus.FAILED)
-        raise
+    except Exception as exc:  # pragma: no cover - defensive exception boundary
+        backend.update_run_status(run.id, RunStatus.FAILED, error_message=str(exc))
+        raise WorkflowError(f"Run {run.id} failed: {exc}") from exc
