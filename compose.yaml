@@ -1,0 +1,16 @@
+services:
+  ora-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: open-research-agent:local
+    env_file:
+      - .env
+    environment:
+      ORA_API_HOST: 0.0.0.0
+      ORA_API_PORT: 8000
+      ORA_DATA_DIR: /app/outputs
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./outputs:/app/outputs
