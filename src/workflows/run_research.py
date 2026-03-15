@@ -6,6 +6,7 @@ import asyncio
 
 from pydantic import BaseModel, Field
 
+from src.analysis.report_builder import render_report_markdown
 from src.core.config import get_settings
 from src.data.models import (
     AnalysisArtifact,
@@ -44,6 +45,9 @@ class RunResearchOutput(BaseModel):
     extracted_documents: list[ExtractedDocument]
     analysis_artifacts: list[AnalysisArtifact]
     report_markdown: str
+    artifact_dir: str
+    artifact_paths: list[str]
+    artifact_refs: dict[str, str]
 
 
 def initialize_run(payload: RunResearchInput) -> ResearchRun:
@@ -76,10 +80,43 @@ def run_research_workflow(
         provider = build_search_provider(get_settings())
         crawler = Crawler(provider)
         discovered = crawler.discover(run.id, queries)
-
         fetched = asyncio.run(crawler.fetch(discovered))
+
         extractor = Extractor()
         extracted = [extractor.extract(doc) for doc in fetched if doc.success and (doc.raw_html or doc.text)]
+
+        backend.save_artifact_json(
+            run.id,
+            "manifest.json",
+            {
+                "run_id": run.id,
+                "objective": run.objective,
+                "status": "running",
+                "created_at": run.created_at.isoformat(),
+            },
+        )
+        plan_path = backend.save_artifact_json(run.id, "plan.json", plan.model_dump(mode="json"))
+        sources_path = backend.save_artifact_json(
+            run.id,
+            "sources.json",
+            [source.model_dump(mode="json") for source in discovered],
+        )
+        fetched_path = backend.save_artifact_json(
+            run.id,
+            "fetched/documents.json",
+            [
+                {
+                    "source_id": doc.source_id,
+                    "requested_url": str(doc.requested_url),
+                    "final_url": str(doc.final_url) if doc.final_url else None,
+                    "status_code": doc.status_code,
+                    "success": doc.success,
+                    "error": doc.error,
+                    "fetched_at": doc.fetched_at.isoformat(),
+                }
+                for doc in fetched
+            ],
+        )
 
         for source in discovered:
             backend.save_source(
@@ -94,10 +131,14 @@ def run_research_workflow(
         for document in extracted:
             backend.save_extracted_document(document)
 
-        summary = (
-            f"Discovered {len(discovered)} sources, fetched {len([d for d in fetched if d.success])}, "
-            f"extracted {len(extracted)} documents."
+        extracted_path = backend.save_artifact_json(
+            run.id,
+            "extracted/documents.json",
+            [document.model_dump(mode="json") for document in extracted],
         )
+
+        fetched_success = len([d for d in fetched if d.success])
+        summary = f"Discovered {len(discovered)} sources, fetched {fetched_success}, extracted {len(extracted)} documents."
         artifact = AnalysisArtifact(
             run_id=run.id,
             kind=ArtifactKind.SUMMARY,
@@ -106,15 +147,63 @@ def run_research_workflow(
         )
         backend.save_analysis_artifact_metadata(artifact)
 
-        report_lines = [
-            f"# Research Report\n\nObjective: {run.objective}",
-            f"\n## Method\n- queries: {', '.join(queries)}",
-            f"\n## Findings\n- {summary}",
-            "\n## Limitations\n- Analysis is deterministic and lightweight in this MVP stage.",
-        ]
-        report_markdown = "\n".join(report_lines)
+        report_markdown = render_report_markdown(
+            run_id=run.id,
+            objective=run.objective,
+            summary=summary,
+            sources=discovered,
+            extracted_documents=extracted,
+            findings=[summary],
+            limitations=["Analysis is deterministic and lightweight in this MVP stage."],
+        )
+        report_path = backend.save_artifact_markdown(run.id, "report/report.md", report_markdown)
 
         run = backend.update_run_status(run.id, RunStatus.COMPLETED)
+        final_result_path = backend.save_artifact_json(
+            run.id,
+            "analysis/final_result.json",
+            {
+                "run_id": run.id,
+                "status": run.status.value,
+                "query": run.objective,
+                "discovered_sources": len(discovered),
+                "fetched_sources": fetched_success,
+                "extracted_documents": len(extracted),
+                "artifact_count": len(backend.list_run_artifacts(run.id)),
+                "report_path": report_path,
+            },
+        )
+        backend.save_artifact_json(
+            run.id,
+            "manifest.json",
+            {
+                "run_id": run.id,
+                "objective": run.objective,
+                "status": run.status.value,
+                "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
+                "paths": {
+                    "plan": plan_path,
+                    "sources": sources_path,
+                    "fetched": fetched_path,
+                    "extracted": extracted_path,
+                    "report": report_path,
+                    "final_result": final_result_path,
+                },
+            },
+        )
+
+        artifact_refs = backend.get_run_artifact_refs(run.id)
+        artifact_refs.update(
+            {
+                "plan": plan_path,
+                "sources": sources_path,
+                "fetched": fetched_path,
+                "extracted": extracted_path,
+                "report": report_path,
+                "final_result": final_result_path,
+            }
+        )
         return RunResearchOutput(
             run=run,
             plan=plan,
@@ -124,7 +213,10 @@ def run_research_workflow(
             extracted_documents=extracted,
             analysis_artifacts=[artifact],
             report_markdown=report_markdown,
+            artifact_dir=str((get_settings().runs_dir / run.id).resolve()),
+            artifact_paths=backend.list_run_artifacts(run.id),
+            artifact_refs=artifact_refs,
         )
     except Exception as exc:
-        run = backend.update_run_status(run.id, RunStatus.FAILED, error_message=str(exc))
+        backend.update_run_status(run.id, RunStatus.FAILED, error_message=str(exc))
         raise

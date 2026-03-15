@@ -23,6 +23,14 @@ class ArtifactKind(str, Enum):
     REPORT_DRAFT = "report_draft"
 
 
+class ExtractionStatus(str, Enum):
+    """Deterministic extraction outcomes."""
+
+    SUCCESS = "success"
+    EMPTY = "empty"
+    FAILED = "failed"
+
+
 class ResearchRequest(BaseModel):
     """Input payload for a bounded research run."""
 
@@ -105,9 +113,14 @@ class ExtractedDocument(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     run_id: str
     source_id: str
+    source_url: HttpUrl
+    final_url: HttpUrl | None = None
+    domain: str | None = None
     title: str | None = None
+    raw_content: str | None = None
     content: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+    extraction_status: ExtractionStatus = ExtractionStatus.SUCCESS
     content_hash: str | None = None
     extracted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

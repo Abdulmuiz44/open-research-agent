@@ -32,6 +32,8 @@ def test_create_run_route_executes_workflow(monkeypatch) -> None:
     assert body["status"] == "completed"
     assert body["run_id"]
     assert body["search_queries"]
+    assert "artifact_count" in body
+    assert "artifact_dir" in body
 
 
 def test_get_run_route(monkeypatch) -> None:
@@ -43,4 +45,19 @@ def test_get_run_route(monkeypatch) -> None:
 
     response = client.get(f"/runs/{run_id}")
     assert response.status_code == 200
-    assert response.json()["run_id"] == run_id
+    body = response.json()
+    assert body["run_id"] == run_id
+    assert "artifact_count" in body
+
+
+def test_get_run_artifacts_route(monkeypatch) -> None:
+    workflow_module.get_settings.cache_clear()
+    monkeypatch.setattr(workflow_module, "build_search_provider", lambda _settings: StubSearchProvider())
+    created = client.post("/runs", json={"objective": "artifacts please"}).json()
+    run_id = created["run_id"]
+
+    response = client.get(f"/runs/{run_id}/artifacts")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] == run_id
+    assert payload["artifact_paths"]

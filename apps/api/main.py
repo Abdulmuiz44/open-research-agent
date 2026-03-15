@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 
 from src.core.config import get_settings
 from src.core.logging import configure_logging_from_settings, get_logger
-from src.data.schemas import HealthResponse, ResearchRunCreateRequest, ResearchRunResponse
+from src.data.schemas import HealthResponse, ResearchRunCreateRequest, ResearchRunResponse, RunArtifactsResponse
 from src.data.storage import LocalStorageStub
 from src.workflows.run_research import RunResearchInput, run_research_workflow
 
@@ -47,11 +47,14 @@ def start_research_run(payload: ResearchRunCreateRequest) -> ResearchRunResponse
         status=output.run.status,
         created_at=output.run.created_at,
         updated_at=output.run.updated_at,
-        message="Run completed with bounded real discovery/fetch flow.",
+        message="Run completed with bounded real discovery/fetch/extract flow.",
         search_queries=output.search_queries,
         discovered_sources=len(output.discovered_sources),
         fetched_sources=fetched_success,
         extracted_documents=len(output.extracted_documents),
+        artifact_count=len(output.artifact_paths),
+        artifact_dir=output.artifact_dir,
+        report_path=output.artifact_refs.get("report"),
     )
 
 
@@ -62,6 +65,8 @@ def get_research_run(run_id: str) -> ResearchRunResponse:
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
+    artifacts = storage.list_run_artifacts(run_id)
+    refs = storage.get_run_artifact_refs(run_id)
     return ResearchRunResponse(
         run_id=run.id,
         objective=run.objective,
@@ -69,4 +74,20 @@ def get_research_run(run_id: str) -> ResearchRunResponse:
         created_at=run.created_at,
         updated_at=run.updated_at,
         message="Run metadata retrieved from local storage.",
+        artifact_count=len(artifacts),
+        artifact_dir=str((settings.runs_dir / run_id).resolve()),
+        report_path=refs.get("report"),
+    )
+
+
+@app.get("/runs/{run_id}/artifacts", response_model=RunArtifactsResponse)
+def get_run_artifacts(run_id: str) -> RunArtifactsResponse:
+    """List artifact references for a run."""
+    run = storage.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return RunArtifactsResponse(
+        run_id=run_id,
+        artifact_paths=storage.list_run_artifacts(run_id),
+        artifact_refs=storage.get_run_artifact_refs(run_id),
     )
