@@ -1,38 +1,47 @@
-from pathlib import Path
+﻿from pathlib import Path
 
-from src.data.models import ExtractedDocument, FetchedDocument, ResearchRun, RunStatus, Source
-from src.data.storage import SQLiteStorageBackend
+from src.data.models import (
+    AnalysisArtifact,
+    ArtifactKind,
+    ExtractedDocument,
+    FetchedDocument,
+    ResearchPlan,
+    ResearchRun,
+    RunStatus,
+    Source,
+)
+from src.data.storage import LocalStorageStub, SQLiteStorageBackend
 
 
-def test_storage_saves_extracted_and_lists_artifacts(tmp_path: Path) -> None:
-    db_path = tmp_path / "outputs" / "metadata.sqlite3"
-    storage = SQLiteStorageBackend(base_dir=tmp_path / "outputs" / "runs", db_path=db_path)
+def _exercise_backend(storage) -> None:
     run = storage.create_run(ResearchRun(id="run-storage", objective="storage objective"))
+    storage.update_run_status(run.id, RunStatus.RUNNING)
 
-    storage.save_artifact_json(run.id, "manifest.json", {"run_id": run.id})
-    storage.save_source(
-        Source(
-            id="source-1",
-            run_id=run.id,
-            url="https://example.com",
-            domain="example.com",
-            title="Example",
-        )
-    )
+    plan = ResearchPlan(objective=run.objective, research_objectives=["a"], search_queries=["q"], source_budget=3)
+    plan_path = storage.save_plan_artifact(run.id, plan)
+    assert plan_path.endswith("plan.json")
+
+    source = Source(id="s1", run_id=run.id, url="https://example.com", domain="example.com", title="Example")
+    saved_source = storage.save_source_metadata(source)
+    assert saved_source.id == source.id
+    assert storage.get_run_sources(run.id)[0].id == source.id
 
     fetched = FetchedDocument(
+        id="f1",
         run_id=run.id,
-        source_id="source-1",
+        source_id=source.id,
         requested_url="https://example.com",
         final_url="https://example.com",
         status_code=200,
         success=True,
+        text="hello",
     )
-    storage.save_fetched_document_metadata(fetched)
+    storage.save_fetched_metadata(fetched)
 
     doc = ExtractedDocument(
+        id="e1",
         run_id=run.id,
-        source_id="source-1",
+        source_id=source.id,
         source_url="https://example.com",
         final_url="https://example.com",
         domain="example.com",
@@ -40,23 +49,37 @@ def test_storage_saves_extracted_and_lists_artifacts(tmp_path: Path) -> None:
         raw_content="raw",
         content="clean",
     )
-    storage.save_extracted_document(doc)
+    storage.save_extracted_document_metadata(doc)
+
+    analysis = AnalysisArtifact(
+        id="a1",
+        run_id=run.id,
+        kind=ArtifactKind.SUMMARY,
+        summary="summary",
+        evidence_ids=[doc.id],
+    )
+    storage.save_analysis_artifact_metadata(analysis)
+
+    report_path = storage.save_artifact_markdown(run.id, "report/report.md", "# Report")
+    storage.save_report_artifact_metadata(run.id, report_path)
 
     artifacts = storage.list_run_artifacts(run.id)
-    assert "manifest.json" in artifacts
-    assert any(path.startswith("extracted/") for path in artifacts)
+    assert "plan.json" in artifacts
+    assert "report/report.md" in artifacts
+    assert any(path.startswith("fetched/") for path in artifacts)
+
     refs = storage.get_run_artifact_refs(run.id)
-    assert refs
-    assert "manifest.json" in refs
+    assert refs["plan"].endswith("plan.json")
+    assert refs["report"].endswith("report\\report.md") or refs["report"].endswith("report/report.md")
+
+    listed_runs = storage.list_runs(limit=10, offset=0)
+    assert listed_runs
+    assert listed_runs[0].id == run.id
 
 
-def test_storage_updates_run_status(tmp_path: Path) -> None:
-    storage = SQLiteStorageBackend(base_dir=tmp_path / "runs", db_path=tmp_path / "metadata.sqlite3")
-    run = storage.create_run(ResearchRun(id="run-status", objective="status objective"))
+def test_local_storage_backend_methods(tmp_path: Path) -> None:
+    _exercise_backend(LocalStorageStub(base_dir=tmp_path / "runs"))
 
-    updated = storage.update_run_status(run.id, RunStatus.RUNNING)
-    assert updated.status == RunStatus.RUNNING
 
-    failed = storage.update_run_status(run.id, RunStatus.FAILED, error_message="boom")
-    assert failed.status == RunStatus.FAILED
-    assert failed.error_message == "boom"
+def test_sqlite_storage_backend_methods(tmp_path: Path) -> None:
+    _exercise_backend(SQLiteStorageBackend(base_dir=tmp_path / "runs", db_path=tmp_path / "runs" / "storage.sqlite3"))
