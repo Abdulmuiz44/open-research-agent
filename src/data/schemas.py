@@ -1,4 +1,4 @@
-"""API and interface schemas derived from core data models."""
+﻿"""API and interface schemas derived from core data models."""
 
 from __future__ import annotations
 
@@ -15,6 +15,14 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     app_name: str
     environment: str
+    version: str
+
+
+class ReadyResponse(BaseModel):
+    """Readiness response payload."""
+
+    status: str = "ready"
+    runs_dir: str
 
 
 class ResearchRunCreateRequest(BaseModel):
@@ -29,24 +37,29 @@ class ResearchRunResponse(BaseModel):
     """Response payload exposing run lifecycle metadata."""
 
     run_id: str
-    objective: str
+    query: str
     status: RunStatus
     created_at: datetime
     updated_at: datetime
     message: str | None = None
     search_queries: list[str] = Field(default_factory=list)
-    discovered_sources: int = 0
-    fetched_sources: int = 0
-    extracted_documents: int = 0
-    finding_count: int = 0
+    source_count: int = 0
+    fetched_count: int = 0
+    extracted_count: int = 0
+    findings_count: int = 0
     artifact_count: int = 0
     artifact_dir: str | None = None
     artifact_summary: dict[str, int] = Field(default_factory=dict)
     report_path: str | None = None
+    objective: str | None = None
+    discovered_sources: int = 0
+    fetched_sources: int = 0
+    extracted_documents: int = 0
+    finding_count: int = 0
 
 
-class ResearchRunListResponse(BaseModel):
-    """Bounded list response for runs."""
+class RunListResponse(BaseModel):
+    """List response for persisted runs."""
 
     runs: list[ResearchRunResponse] = Field(default_factory=list)
 

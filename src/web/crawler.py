@@ -8,11 +8,12 @@ from src.core.config import get_settings
 from src.data.models import CandidateSource, FetchedDocument
 from src.search.provider import SearchProvider
 from src.search.ranker import rank_sources
+from src.web.fetch_browser import fetch_via_browser
 from src.web.fetch_http import fetch_via_http
 
 
 class Crawler:
-    """Coordinates bounded discovery and HTTP fetch under simple constraints."""
+    """Coordinates bounded discovery and fetch under simple constraints."""
 
     def __init__(self, provider: SearchProvider) -> None:
         self.provider = provider
@@ -26,7 +27,22 @@ class Crawler:
         return rank_sources(candidates, top_n=self.settings.max_sources_per_run)
 
     async def fetch(self, sources: list[CandidateSource]) -> list[FetchedDocument]:
-        """Fetch a bounded number of sources via HTTP."""
+        """Fetch a bounded number of sources via HTTP with browser fallback when marked."""
         limited = sources[: self.settings.max_fetch_per_run]
-        tasks = [fetch_via_http(source) for source in limited]
-        return await asyncio.gather(*tasks)
+        return [await self._fetch_one(source) for source in limited]
+
+    async def _fetch_one(self, source: CandidateSource) -> FetchedDocument:
+        fetched = await fetch_via_http(source)
+        if not fetched.success and self._should_use_browser_fallback(source=source, fetched=fetched):
+            return await fetch_via_browser(source)
+        return fetched
+
+    def _should_use_browser_fallback(self, *, source: CandidateSource, fetched: FetchedDocument) -> bool:
+        """Allow explicit, bounded browser fallback for known JS-heavy sources."""
+        if fetched.success:
+            return False
+        if source.metadata.get("browser_required") is True:
+            return True
+        if fetched.status_code in {403, 429}:
+            return True
+        return False
