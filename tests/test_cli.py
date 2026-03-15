@@ -31,3 +31,5 @@ def test_cli_research_success(monkeypatch) -> None:
     assert result.exit_code == 0
     assert "run_id:" in result.stdout
     assert "status:" in result.stdout
+    assert "artifact_output_dir:" in result.stdout
+    assert "report_artifact_path:" in result.stdout

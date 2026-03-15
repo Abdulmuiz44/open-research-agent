@@ -37,10 +37,11 @@ def research(objective: str, max_sources: int = 6) -> None:
 
     typer.echo(f"run_id: {output.run.id}")
     typer.echo(f"status: {output.run.status}")
-    typer.echo(f"queries: {', '.join(output.search_queries)}")
     typer.echo(f"discovered_sources: {len(output.discovered_sources)}")
     typer.echo(f"fetched_sources: {fetched_success}")
     typer.echo(f"extracted_documents: {len(output.extracted_documents)}")
+    typer.echo(f"artifact_output_dir: {output.artifact_dir}")
+    typer.echo(f"report_artifact_path: {output.artifact_refs.get('report', 'not_generated')}")
 
 
 @app.command()

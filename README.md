@@ -4,7 +4,7 @@ Open Research Agent is an open-source, Python-first system for bounded research 
 
 ## Current Status
 
-**Real Search and Fetch Layer Started** — the project now runs a bounded local flow with real source discovery and real HTTP fetching, while extraction/analysis/reporting remain intentionally simple and deterministic.
+**Real Extraction and Local Artifacts Implemented** — the project now runs a bounded local flow with real source discovery, real HTTP fetching, deterministic extraction into structured evidence, and per-run inspectable artifacts on disk.
 
 ## What is Implemented Now
 
@@ -13,17 +13,30 @@ Open Research Agent is an open-source, Python-first system for bounded research 
 - Source ranking and URL deduplication heuristics.
 - Real HTTP fetch layer with timeout/retry/user-agent controls and fetch metadata capture.
 - Bounded browser fetch placeholder interface (`browser_fetch_not_enabled`).
-- Simple bounded extraction path (Trafilatura + HTML title fallback + cleaned body text).
-- End-to-end workflow orchestration from objective → queries → discovery → fetch → extraction → simple summary/report.
-- CLI `research` command executes the bounded real flow.
-- API `POST /runs` executes the bounded real flow and returns run summary counts.
-- Local in-memory run storage remains the default persistence for this phase.
+- Real bounded extraction path with title, cleaned text, canonical URL, metadata extraction, whitespace normalization, and basic boilerplate filtering.
+- Local artifact persistence per run under `outputs/runs/<run_id>/`.
+- End-to-end workflow orchestration from objective → queries → discovery → fetch → extraction → deterministic report.
+- CLI `research` output includes run and artifact details.
+- API run endpoints include extracted-document and artifact metadata.
+
+## Run Artifacts
+
+Each run writes inspectable files to:
+
+- `outputs/runs/<run_id>/manifest.json`
+- `outputs/runs/<run_id>/plan.json`
+- `outputs/runs/<run_id>/sources.json`
+- `outputs/runs/<run_id>/fetched/documents.json`
+- `outputs/runs/<run_id>/extracted/documents.json`
+- `outputs/runs/<run_id>/analysis/final_result.json`
+- `outputs/runs/<run_id>/report/report.md`
+- Additional per-document extracted artifacts under `outputs/runs/<run_id>/extracted/`
 
 ## What Remains Intentionally Deferred
 
 - Full crawler orchestration and autonomous browsing.
 - Playwright browser automation implementation.
-- LLM-driven planning/ranking/analysis.
+- LLM-driven planning/ranking/analysis/report prose.
 - Durable database-backed persistence.
 - Vector search and advanced retrieval.
 - Advanced extraction (PDF/OCR/site-specific strategies).
@@ -60,9 +73,16 @@ All runtime config uses `ORA_` prefix:
 - API run execution:
   - `curl -X POST http://127.0.0.1:8000/runs -H 'content-type: application/json' -d '{"objective":"Compare open-source HTML extraction libraries","max_sources":6}'`
 
+## Inspect Outputs Locally
+
+- Check the run directory printed by CLI/API.
+- Open `manifest.json` for the artifact index.
+- Review `extracted/documents.json` for structured extracted evidence.
+- Read `report/report.md` for the deterministic run summary.
+
 ## Known Limitations
 
 - Search provider may vary by network availability and remote result changes.
 - Browser fetch is a non-active placeholder in this step.
 - Extraction quality is intentionally basic and bounded.
-- Local in-memory storage resets when process exits.
+- Storage is local file-based and not a production database.

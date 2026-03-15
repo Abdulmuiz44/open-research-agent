@@ -38,10 +38,14 @@ class ResearchRunResponse(BaseModel):
     discovered_sources: int = 0
     fetched_sources: int = 0
     extracted_documents: int = 0
+    artifact_count: int = 0
+    artifact_dir: str | None = None
+    report_path: str | None = None
 
 
 class RunArtifactsResponse(BaseModel):
-    """Placeholder list of artifact metadata tied to a run."""
+    """List of artifact metadata tied to a run."""
 
     run_id: str
-    artifact_ids: list[str] = Field(default_factory=list)
+    artifact_paths: list[str] = Field(default_factory=list)
+    artifact_refs: dict[str, str] = Field(default_factory=dict)
