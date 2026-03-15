@@ -1,68 +1,107 @@
 # Open Research Agent
 
-Open Research Agent is an open-source, Python-first system for bounded research workflows over web and local data sources.
+## Status
 
-## Current Status
+**Production Packaging and Deployment Readiness Implemented**
 
-**Real Search and Fetch Layer Started** — the project now runs a bounded local flow with real source discovery and real HTTP fetching, while extraction/analysis/reporting remain intentionally simple and deterministic.
+Open Research Agent is a Python-first, CLI-first MVP for bounded local research runs using deterministic discovery/fetch/extract/analyze/report steps.
 
-## What is Implemented Now
+## MVP Scope Alignment
 
-- Deterministic plan-to-query generation.
-- Real search provider abstraction with a local DuckDuckGo HTML provider.
-- Source ranking and URL deduplication heuristics.
-- Real HTTP fetch layer with timeout/retry/user-agent controls and fetch metadata capture.
-- Bounded browser fetch placeholder interface (`browser_fetch_not_enabled`).
-- Simple bounded extraction path (Trafilatura + HTML title fallback + cleaned body text).
-- End-to-end workflow orchestration from objective → queries → discovery → fetch → extraction → simple summary/report.
-- CLI `research` command executes the bounded real flow.
-- API `POST /runs` executes the bounded real flow and returns run summary counts.
-- Local in-memory run storage remains the default persistence for this phase.
+This repository remains aligned with `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/MVP_SCOPE.md`, and `docs/TASKLIST.md`:
 
-## What Remains Intentionally Deferred
+- single-service, local-first runtime
+- no frontend UI
+- no distributed infrastructure
+- no remote database dependency
+- no Kubernetes/cloud deployment stack
 
-- Full crawler orchestration and autonomous browsing.
-- Playwright browser automation implementation.
-- LLM-driven planning/ranking/analysis.
-- Durable database-backed persistence.
-- Vector search and advanced retrieval.
-- Advanced extraction (PDF/OCR/site-specific strategies).
+## Development Run (Local)
+
+1. Install Python 3.11+.
+2. Install dependencies:
+   - `uv sync --extra dev`
+3. Optional `.env` overrides with `ORA_` prefix.
+
+CLI commands:
+
+- `uv run ora --help`
+- `uv run ora health`
+- `uv run ora research "Compare open-source HTML extraction libraries" --max-sources 6`
+
+API command:
+
+- `uv run uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --reload`
+
+## Packaged / Containerized Run
+
+### Docker build + run
+
+- Build: `docker build -t open-research-agent:local .`
+- Run:
+  - `docker run --rm -p 8000:8000 --env-file .env -v "$(pwd)/outputs:/app/outputs" open-research-agent:local`
+
+### Compose run
+
+- `docker compose up --build`
+
+The compose setup mounts local `./outputs` into container `/app/outputs`.
 
 ## Environment Variables
 
-All runtime config uses `ORA_` prefix:
+All configuration uses `ORA_` prefix.
 
-- `ORA_SEARCH_PROVIDER` (default: `duckduckgo_html`)
-- `ORA_SEARCH_ENDPOINT` (default: `https://duckduckgo.com/html/`)
-- `ORA_REQUEST_TIMEOUT_SECONDS` (default: `10.0`)
-- `ORA_REQUEST_RETRIES` (default: `2`)
-- `ORA_USER_AGENT` (default: `open-research-agent/0.1 (+https://example.local)`)
-- `ORA_MAX_SOURCES_PER_RUN` (default: `8`)
-- `ORA_MAX_FETCH_PER_RUN` (default: `6`)
+Required in specific cases:
 
-## Local Setup
+- `ORA_SEARCH_API_KEY` when `ORA_SEARCH_PROVIDER` is `serpapi` or `tavily`
 
-1. Install Python 3.11 and `uv`.
-2. Install dependencies:
-   - `uv sync --extra dev`
-3. Optional `.env` overrides (example):
-   - `ORA_ENVIRONMENT=development`
-   - `ORA_LOG_LEVEL=INFO`
-   - `ORA_SEARCH_PROVIDER=duckduckgo_html`
+Common optional settings:
 
-## Run Locally
+- `ORA_ENVIRONMENT` (`development|test|staging|production`)
+- `ORA_SERVICE_MODE` (`api|cli`)
+- `ORA_LOG_LEVEL` (`DEBUG|INFO|WARNING|ERROR|CRITICAL`)
+- `ORA_API_HOST` (IP, `localhost`, or hostname)
+- `ORA_API_PORT` (1..65535)
+- `ORA_DATA_DIR` (default `outputs`)
+- `ORA_RUNS_DIR` (default `<ORA_DATA_DIR>/runs`)
+- `ORA_ARTIFACTS_DIR` (default `<ORA_DATA_DIR>/artifacts`)
+- `ORA_REPORTS_DIR` (default `<ORA_DATA_DIR>/reports`)
+- `ORA_METADATA_DIR` (default `<ORA_DATA_DIR>/metadata`)
+- `ORA_SEARCH_PROVIDER`
+- `ORA_SEARCH_ENDPOINT`
+- `ORA_REQUEST_TIMEOUT_SECONDS`
+- `ORA_REQUEST_RETRIES`
+- `ORA_USER_AGENT`
+- `ORA_MAX_SOURCES_PER_RUN`
+- `ORA_MAX_FETCH_PER_RUN`
 
-- CLI health: `uv run ora health`
-- CLI research flow:
-  - `uv run ora research "Compare open-source HTML extraction libraries" --max-sources 6`
-- API server:
-  - `uv run uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --reload`
-- API run execution:
-  - `curl -X POST http://127.0.0.1:8000/runs -H 'content-type: application/json' -d '{"objective":"Compare open-source HTML extraction libraries","max_sources":6}'`
+Provider-related optional settings:
 
-## Known Limitations
+- `ORA_OPENAI_API_KEY`
+- `ORA_ANTHROPIC_API_KEY`
 
-- Search provider may vary by network availability and remote result changes.
-- Browser fetch is a non-active placeholder in this step.
-- Extraction quality is intentionally basic and bounded.
-- Local in-memory storage resets when process exits.
+## Health and Readiness
+
+- `GET /health`: basic liveness for service process and config load.
+- `GET /ready`: readiness for local startup dependencies (validated writable persistence paths and bootstrap completion).
+
+## Persistence and Artifact Paths
+
+At startup, runtime prepares and validates these paths:
+
+- `<ORA_DATA_DIR>`
+- `<ORA_DATA_DIR>/runs`
+- `<ORA_DATA_DIR>/artifacts`
+- `<ORA_DATA_DIR>/reports`
+- `<ORA_DATA_DIR>/metadata`
+
+Paths are created if missing and checked for writability.
+
+## Current Deployment Limitations (Intentional)
+
+- single-process local MVP deployment only
+- in-memory storage backend is still used for run metadata
+- no background workers or distributed job orchestration
+- no managed observability stack
+
+See `docs/DEPLOYMENT.md` for operational details and troubleshooting.

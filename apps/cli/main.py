@@ -4,28 +4,34 @@ from __future__ import annotations
 
 import typer
 
-from src.core.config import get_settings
-from src.core.logging import configure_logging_from_settings, get_logger
+from src.core.bootstrap import BootstrapState, bootstrap_runtime
+from src.core.exceptions import ConfigurationError
+from src.core.logging import get_logger
 from src.workflows.run_research import RunResearchInput, run_research_workflow
 
 app = typer.Typer(help="Open Research Agent command line interface.")
+_bootstrap_state: BootstrapState | None = None
 
 
 @app.callback()
 def main() -> None:
-    """Initialize config and logging for every CLI invocation."""
-    settings = get_settings()
-    configure_logging_from_settings(settings)
+    """Initialize config, logging, and startup validation for every CLI invocation."""
+    global _bootstrap_state
+    try:
+        _bootstrap_state = bootstrap_runtime(service_mode="cli")
+    except ConfigurationError as exc:
+        raise typer.BadParameter(f"Startup validation failed: {exc}") from exc
 
 
 @app.command()
 def health() -> None:
     """Report local runtime health and configuration summary."""
-    settings = get_settings()
+    state = _bootstrap_state or bootstrap_runtime(service_mode="cli")
     logger = get_logger("ora.cli")
     logger.info("health check completed")
     typer.echo(
-        f"ok | app={settings.app_name} env={settings.environment} api={settings.api_host}:{settings.api_port}"
+        f"ok | app={state.settings.app_name} env={state.settings.environment} "
+        f"api={state.settings.api_host}:{state.settings.api_port} data_dir={state.settings.data_dir}"
     )
 
 
