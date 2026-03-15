@@ -149,6 +149,15 @@ class AnalysisArtifact(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class RunMetrics(BaseModel):
+    """Standardized run stage counts for CLI/API/workflow outputs."""
+
+    source_count: int = 0
+    fetched_count: int = 0
+    extracted_count: int = 0
+    findings_count: int = 0
+
+
 class Report(BaseModel):
     """Deterministic report payload with structured sections and markdown."""
 
