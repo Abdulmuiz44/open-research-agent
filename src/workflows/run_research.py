@@ -11,6 +11,7 @@ from src.core.config import get_settings
 from src.data.models import (
     AnalysisArtifact,
     ArtifactKind,
+    ArtifactReference,
     CandidateSource,
     ExtractedDocument,
     FetchedDocument,
@@ -48,6 +49,11 @@ class RunResearchOutput(BaseModel):
     artifact_dir: str
     artifact_paths: list[str]
     artifact_refs: dict[str, str]
+    report_artifact: ArtifactReference | None = None
+    artifact_summary: dict[str, int] = Field(default_factory=dict)
+    source_count: int = 0
+    extracted_count: int = 0
+    finding_count: int = 0
 
 
 def initialize_run(payload: RunResearchInput) -> ResearchRun:
@@ -157,6 +163,11 @@ def run_research_workflow(
             limitations=["Analysis is deterministic and lightweight in this MVP stage."],
         )
         report_path = backend.save_artifact_markdown(run.id, "report/report.md", report_markdown)
+        report_artifact = ArtifactReference(
+            kind=ArtifactKind.REPORT_DRAFT,
+            path=report_path,
+            metadata={"format": "markdown", "label": "report"},
+        )
 
         run = backend.update_run_status(run.id, RunStatus.COMPLETED)
         final_result_path = backend.save_artifact_json(
@@ -204,6 +215,14 @@ def run_research_workflow(
                 "final_result": final_result_path,
             }
         )
+        artifact_summary = {
+            "source_count": len(discovered),
+            "fetched_count": fetched_success,
+            "extracted_count": len(extracted),
+            "finding_count": 1,
+            "artifact_count": len(backend.list_run_artifacts(run.id)),
+        }
+
         return RunResearchOutput(
             run=run,
             plan=plan,
@@ -213,9 +232,14 @@ def run_research_workflow(
             extracted_documents=extracted,
             analysis_artifacts=[artifact],
             report_markdown=report_markdown,
-            artifact_dir=str((get_settings().runs_dir / run.id).resolve()),
+            artifact_dir=str((backend.base_dir / run.id).resolve()) if isinstance(backend, LocalStorageStub) else str((get_settings().runs_dir / run.id).resolve()),
             artifact_paths=backend.list_run_artifacts(run.id),
             artifact_refs=artifact_refs,
+            report_artifact=report_artifact,
+            artifact_summary=artifact_summary,
+            source_count=artifact_summary["source_count"],
+            extracted_count=artifact_summary["extracted_count"],
+            finding_count=artifact_summary["finding_count"],
         )
     except Exception as exc:
         backend.update_run_status(run.id, RunStatus.FAILED, error_message=str(exc))

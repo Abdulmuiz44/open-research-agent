@@ -149,11 +149,56 @@ class AnalysisArtifact(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
-class Report(BaseModel):
-    """Simple deterministic report payload."""
+class ReportMetadata(BaseModel):
+    """Top-level report metadata for identity and generation context."""
 
+    title: str
     run_id: str
     objective: str
-    findings: list[str] = Field(default_factory=list)
-    limitations: list[str] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ReportSection(BaseModel):
+    """Named section content included in a report."""
+
+    id: str
+    name: str
+    content: str
+
+
+class FindingReference(BaseModel):
+    """Structured finding that ties narrative text to evidence and sources."""
+
+    finding_id: str
+    text: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class SourceReference(BaseModel):
+    """Source pointer used in report outputs."""
+
+    source_id: str
+    url: HttpUrl
+    title: str | None = None
+    domain: str | None = None
+
+
+class ArtifactReference(BaseModel):
+    """Filesystem artifact pointer emitted by workflow stages."""
+
+    kind: ArtifactKind
+    path: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class Report(BaseModel):
+    """Structured deterministic report payload plus markdown rendering."""
+
+    metadata: ReportMetadata
+    sections: list[ReportSection] = Field(default_factory=list)
+    findings: list[FindingReference] = Field(default_factory=list)
+    sources: list[SourceReference] = Field(default_factory=list)
+    artifacts: list[ArtifactReference] = Field(default_factory=list)
     markdown: str

@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from src.data.models import RunStatus
+from src.data.models import ArtifactReference, RunStatus
 
 
 class HealthResponse(BaseModel):
@@ -26,7 +26,7 @@ class ResearchRunCreateRequest(BaseModel):
 
 
 class ResearchRunResponse(BaseModel):
-    """Response payload exposing run lifecycle metadata."""
+    """Response payload exposing run lifecycle metadata and report summaries."""
 
     run_id: str
     objective: str
@@ -35,12 +35,14 @@ class ResearchRunResponse(BaseModel):
     updated_at: datetime
     message: str | None = None
     search_queries: list[str] = Field(default_factory=list)
-    discovered_sources: int = 0
-    fetched_sources: int = 0
-    extracted_documents: int = 0
+    source_count: int = 0
+    fetched_count: int = 0
+    extracted_count: int = 0
+    finding_count: int = 0
     artifact_count: int = 0
     artifact_dir: str | None = None
-    report_path: str | None = None
+    report_artifact: ArtifactReference | None = None
+    artifact_summary: dict[str, int] = Field(default_factory=dict)
 
 
 class RunArtifactsResponse(BaseModel):
@@ -49,3 +51,5 @@ class RunArtifactsResponse(BaseModel):
     run_id: str
     artifact_paths: list[str] = Field(default_factory=list)
     artifact_refs: dict[str, str] = Field(default_factory=dict)
+    report_artifact: ArtifactReference | None = None
+    artifact_summary: dict[str, int] = Field(default_factory=dict)

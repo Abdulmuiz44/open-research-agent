@@ -4,7 +4,18 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from src.data.models import AnalysisArtifact, CandidateSource, ExtractedDocument, Report
+from src.data.models import (
+    AnalysisArtifact,
+    ArtifactKind,
+    ArtifactReference,
+    CandidateSource,
+    ExtractedDocument,
+    FindingReference,
+    Report,
+    ReportMetadata,
+    ReportSection,
+    SourceReference,
+)
 
 
 def render_report_markdown(
@@ -48,8 +59,64 @@ def render_report_markdown(
     return "\n".join(markdown_lines)
 
 
-def build_report(run_id: str, objective: str, artifacts: list[AnalysisArtifact], markdown: str) -> Report:
-    """Build report payload from analysis artifacts and markdown."""
-    findings = [artifact.summary for artifact in artifacts if artifact.summary]
-    limitations = ["Analysis is deterministic and lightweight in this MVP stage."]
-    return Report(run_id=run_id, objective=objective, findings=findings, limitations=limitations, markdown=markdown)
+def build_report(
+    run_id: str,
+    objective: str,
+    artifacts: list[AnalysisArtifact],
+    markdown: str,
+    sources: list[CandidateSource] | None = None,
+) -> Report:
+    """Build structured report payload from analysis artifacts and markdown."""
+    findings = [
+        FindingReference(
+            finding_id=artifact.id,
+            text=artifact.summary,
+            evidence_ids=list(artifact.evidence_ids),
+            source_ids=[],
+        )
+        for artifact in artifacts
+        if artifact.summary
+    ]
+    report_sources = [
+        SourceReference(
+            source_id=source.id,
+            url=source.url,
+            title=source.title,
+            domain=source.domain,
+        )
+        for source in (sources or [])
+    ]
+    report_artifacts = [
+        ArtifactReference(
+            kind=artifact.kind,
+            path=f"analysis/{artifact.id}.json",
+            created_at=artifact.created_at,
+            metadata={"summary": artifact.summary},
+        )
+        for artifact in artifacts
+    ]
+    report_artifacts.append(
+        ArtifactReference(
+            kind=ArtifactKind.REPORT_DRAFT,
+            path="report/report.md",
+            metadata={"format": "markdown"},
+        )
+    )
+
+    sections = [
+        ReportSection(id="summary", name="Summary", content="\n".join(item.text for item in findings) or "No findings generated."),
+        ReportSection(
+            id="limitations",
+            name="Limitations",
+            content="Analysis is deterministic and lightweight in this MVP stage.",
+        ),
+    ]
+
+    return Report(
+        metadata=ReportMetadata(title="Research Report", run_id=run_id, objective=objective),
+        sections=sections,
+        findings=findings,
+        sources=report_sources,
+        artifacts=report_artifacts,
+        markdown=markdown,
+    )
