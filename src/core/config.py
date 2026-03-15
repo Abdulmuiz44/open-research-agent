@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     planner_model: str = "gpt-4o-mini"
     analysis_model: str = "gpt-4o-mini"
 
+    search_provider: str = "duckduckgo_html"
+    search_endpoint: str = "https://duckduckgo.com/html/"
+    request_timeout_seconds: float = 10.0
+    request_retries: int = 2
+    user_agent: str = "open-research-agent/0.1 (+https://example.local)"
+    max_sources_per_run: int = 8
+    max_fetch_per_run: int = 6
+
     openai_api_key: str | None = Field(default=None, repr=False)
     anthropic_api_key: str | None = Field(default=None, repr=False)
     search_api_key: str | None = Field(default=None, repr=False)

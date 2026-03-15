@@ -6,6 +6,7 @@ import typer
 
 from src.core.config import get_settings
 from src.core.logging import configure_logging_from_settings, get_logger
+from src.workflows.run_research import RunResearchInput, run_research_workflow
 
 app = typer.Typer(help="Open Research Agent command line interface.")
 
@@ -29,27 +30,31 @@ def health() -> None:
 
 
 @app.command()
-def research(objective: str) -> None:
-    """Run bounded research workflow (placeholder)."""
-    _ = objective
-    typer.echo("research command is not implemented yet.", err=True)
-    raise typer.Exit(code=1)
+def research(objective: str, max_sources: int = 6) -> None:
+    """Run bounded research workflow."""
+    output = run_research_workflow(RunResearchInput(objective=objective, max_sources=max_sources))
+    fetched_success = len([item for item in output.fetched_documents if item.success])
+
+    typer.echo(f"run_id: {output.run.id}")
+    typer.echo(f"status: {output.run.status}")
+    typer.echo(f"queries: {', '.join(output.search_queries)}")
+    typer.echo(f"discovered_sources: {len(output.discovered_sources)}")
+    typer.echo(f"fetched_sources: {fetched_success}")
+    typer.echo(f"extracted_documents: {len(output.extracted_documents)}")
 
 
 @app.command()
 def fetch(url: str) -> None:
-    """Fetch content for a URL (placeholder)."""
+    """Fetch command remains intentionally narrow."""
     _ = url
-    typer.echo("fetch command is not implemented yet.", err=True)
-    raise typer.Exit(code=1)
+    typer.echo("fetch command is intentionally limited; use research for full flow.")
 
 
 @app.command()
 def analyze(run_id: str) -> None:
-    """Analyze artifacts for an existing run (placeholder)."""
+    """Analyze command remains intentionally narrow."""
     _ = run_id
-    typer.echo("analyze command is not implemented yet.", err=True)
-    raise typer.Exit(code=1)
+    typer.echo("analyze command is intentionally limited; use research for full flow.")
 
 
 if __name__ == "__main__":

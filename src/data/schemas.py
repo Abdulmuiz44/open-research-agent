@@ -34,6 +34,10 @@ class ResearchRunResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     message: str | None = None
+    search_queries: list[str] = Field(default_factory=list)
+    discovered_sources: int = 0
+    fetched_sources: int = 0
+    extracted_documents: int = 0
 
 
 class RunArtifactsResponse(BaseModel):

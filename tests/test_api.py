@@ -5,6 +5,8 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from apps.api.main import app
+from src.search.provider import StubSearchProvider
+from src.workflows import run_research as workflow_module
 
 
 client = TestClient(app)
@@ -19,19 +21,23 @@ def test_health_route() -> None:
     assert payload["app_name"]
 
 
-def test_create_run_route_placeholder() -> None:
-    """Run creation endpoint should create metadata placeholder."""
+def test_create_run_route_executes_workflow(monkeypatch) -> None:
+    """Run creation endpoint should execute workflow and return summary."""
+    workflow_module.get_settings.cache_clear()
+    monkeypatch.setattr(workflow_module, "build_search_provider", lambda _settings: StubSearchProvider())
     payload = {"objective": "test objective", "constraints": [], "max_sources": 5}
     response = client.post("/runs", json=payload)
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "created"
+    assert body["status"] == "completed"
     assert body["run_id"]
-    assert "not implemented yet" in body["message"].lower()
+    assert body["search_queries"]
 
 
-def test_get_run_route() -> None:
-    """Run retrieval should return existing placeholder run metadata."""
+def test_get_run_route(monkeypatch) -> None:
+    """Run retrieval should return existing run metadata."""
+    workflow_module.get_settings.cache_clear()
+    monkeypatch.setattr(workflow_module, "build_search_provider", lambda _settings: StubSearchProvider())
     created = client.post("/runs", json={"objective": "retrieve me"}).json()
     run_id = created["run_id"]
 
