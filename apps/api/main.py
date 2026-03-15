@@ -65,8 +65,8 @@ def get_research_run(run_id: str) -> ResearchRunResponse:
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
-    artifacts = storage.list_run_artifacts(run_id)
-    refs = storage.get_run_artifact_refs(run_id)
+    artifacts = storage.get_run_artifacts(run_id)
+    report_path = str((settings.runs_dir / run_id / "report" / "report.md").resolve()) if "report/report.md" in artifacts else None
     return ResearchRunResponse(
         run_id=run.id,
         objective=run.objective,
@@ -76,7 +76,7 @@ def get_research_run(run_id: str) -> ResearchRunResponse:
         message="Run metadata retrieved from local storage.",
         artifact_count=len(artifacts),
         artifact_dir=str((settings.runs_dir / run_id).resolve()),
-        report_path=refs.get("report"),
+        report_path=report_path,
     )
 
 
@@ -88,6 +88,6 @@ def get_run_artifacts(run_id: str) -> RunArtifactsResponse:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     return RunArtifactsResponse(
         run_id=run_id,
-        artifact_paths=storage.list_run_artifacts(run_id),
-        artifact_refs=storage.get_run_artifact_refs(run_id),
+        artifact_paths=storage.get_run_artifacts(run_id),
+        artifact_refs={},
     )

@@ -95,7 +95,7 @@ def run_research_workflow(
                 "created_at": run.created_at.isoformat(),
             },
         )
-        plan_path = backend.save_artifact_json(run.id, "plan.json", plan.model_dump(mode="json"))
+        plan_path = backend.save_plan_artifact(run.id, plan)
         sources_path = backend.save_artifact_json(
             run.id,
             "sources.json",
@@ -117,9 +117,11 @@ def run_research_workflow(
                 for doc in fetched
             ],
         )
+        for fetched_document in fetched:
+            backend.save_fetched_metadata(fetched_document)
 
         for source in discovered:
-            backend.save_source(
+            backend.save_source_metadata(
                 Source(
                     id=source.id,
                     run_id=source.run_id,
@@ -129,7 +131,7 @@ def run_research_workflow(
                 )
             )
         for document in extracted:
-            backend.save_extracted_document(document)
+            backend.save_extracted_document_metadata(document)
 
         extracted_path = backend.save_artifact_json(
             run.id,
@@ -157,6 +159,7 @@ def run_research_workflow(
             limitations=["Analysis is deterministic and lightweight in this MVP stage."],
         )
         report_path = backend.save_artifact_markdown(run.id, "report/report.md", report_markdown)
+        backend.save_report_artifact_metadata(run.id, report_path)
 
         run = backend.update_run_status(run.id, RunStatus.COMPLETED)
         final_result_path = backend.save_artifact_json(
@@ -169,7 +172,7 @@ def run_research_workflow(
                 "discovered_sources": len(discovered),
                 "fetched_sources": fetched_success,
                 "extracted_documents": len(extracted),
-                "artifact_count": len(backend.list_run_artifacts(run.id)),
+                "artifact_count": len(backend.get_run_artifacts(run.id)),
                 "report_path": report_path,
             },
         )
@@ -193,17 +196,14 @@ def run_research_workflow(
             },
         )
 
-        artifact_refs = backend.get_run_artifact_refs(run.id)
-        artifact_refs.update(
-            {
-                "plan": plan_path,
-                "sources": sources_path,
-                "fetched": fetched_path,
-                "extracted": extracted_path,
-                "report": report_path,
-                "final_result": final_result_path,
-            }
-        )
+        artifact_refs = {
+            "plan": plan_path,
+            "sources": sources_path,
+            "fetched": fetched_path,
+            "extracted": extracted_path,
+            "report": report_path,
+            "final_result": final_result_path,
+        }
         return RunResearchOutput(
             run=run,
             plan=plan,
@@ -213,8 +213,8 @@ def run_research_workflow(
             extracted_documents=extracted,
             analysis_artifacts=[artifact],
             report_markdown=report_markdown,
-            artifact_dir=str((get_settings().runs_dir / run.id).resolve()),
-            artifact_paths=backend.list_run_artifacts(run.id),
+            artifact_dir=str((getattr(backend, "base_dir", get_settings().runs_dir) / run.id).resolve()),
+            artifact_paths=backend.get_run_artifacts(run.id),
             artifact_refs=artifact_refs,
         )
     except Exception as exc:
