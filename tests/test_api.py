@@ -32,6 +32,15 @@ def test_ready_route() -> None:
     assert response.json()["status"] == "ready"
 
 
+def test_ready_route() -> None:
+    response = client.get("/ready")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] in {"ready", "not_ready"}
+    if payload["status"] == "ready":
+        assert payload["writable_paths"]
+
+
 def test_create_run_route_executes_workflow(monkeypatch) -> None:
     workflow_module.get_settings.cache_clear()
     monkeypatch.setattr(workflow_module, "build_search_provider", lambda _settings: StubSearchProvider())

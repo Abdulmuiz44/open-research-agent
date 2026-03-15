@@ -25,6 +25,16 @@ class ReadyResponse(BaseModel):
     runs_dir: str
 
 
+class ReadinessResponse(BaseModel):
+    """Readiness response payload."""
+
+    status: str
+    app_name: str
+    environment: str
+    service_mode: str
+    writable_paths: list[str] = Field(default_factory=list)
+
+
 class ResearchRunCreateRequest(BaseModel):
     """Request payload for creating a research run."""
 
