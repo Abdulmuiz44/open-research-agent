@@ -1,4 +1,4 @@
-"""Research workflow orchestration for bounded local runs."""
+﻿"""Research workflow orchestration for bounded local runs."""
 
 from __future__ import annotations
 
@@ -96,6 +96,7 @@ def run_research_workflow(
             findings_count=len(extracted),
         )
 
+        initial_artifact_dir = str((Path(getattr(backend, "base_dir", get_settings().runs_dir)) / run.id).resolve())
         backend.save_artifact_json(
             run.id,
             "manifest.json",
@@ -103,13 +104,13 @@ def run_research_workflow(
                 "run_id": run.id,
                 "status": RunStatus.RUNNING.value,
                 "query": run.objective,
-                "artifact_dir": str((Path(backend.base_dir) / run.id).resolve()) if isinstance(backend, LocalStorageStub) else None,
+                "artifact_dir": initial_artifact_dir,
                 "created_at": run.created_at.isoformat(),
                 "updated_at": run.updated_at.isoformat(),
             },
         )
 
-        plan_path = backend.save_artifact_json(run.id, "plan.json", plan.model_dump(mode="json"))
+        plan_path = backend.save_plan_artifact(run.id, plan)
         sources_path = backend.save_artifact_json(run.id, "sources.json", [source.model_dump(mode="json") for source in discovered])
         fetched_path = backend.save_artifact_json(
             run.id,
@@ -127,11 +128,21 @@ def run_research_workflow(
                 for doc in fetched
             ],
         )
+        for fetched_document in fetched:
+            backend.save_fetched_metadata(fetched_document)
 
         for source in discovered:
-            backend.save_source(Source(id=source.id, run_id=source.run_id, url=source.url, domain=source.domain, title=source.title))
+            backend.save_source_metadata(
+                Source(
+                    id=source.id,
+                    run_id=source.run_id,
+                    url=source.url,
+                    domain=source.domain,
+                    title=source.title,
+                )
+            )
         for document in extracted:
-            backend.save_extracted_document(document)
+            backend.save_extracted_document_metadata(document)
 
         extracted_path = backend.save_artifact_json(run.id, "extracted/documents.json", [document.model_dump(mode="json") for document in extracted])
 
@@ -157,9 +168,10 @@ def run_research_workflow(
             generated_at=datetime.now(UTC),
         )
         report_path = backend.save_artifact_markdown(run.id, "report/report.md", report.markdown)
+        backend.save_report_artifact_metadata(run.id, report_path)
 
         run = backend.update_run_status(run.id, RunStatus.COMPLETED)
-        artifact_dir = str((Path(backend.base_dir) / run.id).resolve()) if isinstance(backend, LocalStorageStub) else str((get_settings().runs_dir / run.id).resolve())
+        artifact_dir = str((Path(getattr(backend, "base_dir", get_settings().runs_dir)) / run.id).resolve())
 
         final_result_path = backend.save_artifact_json(
             run.id,
@@ -176,7 +188,6 @@ def run_research_workflow(
                 "report_path": report_path,
                 "created_at": run.created_at.isoformat(),
                 "updated_at": run.updated_at.isoformat(),
-                # compatibility aliases
                 "discovered_sources": metrics.source_count,
                 "fetched_sources": metrics.fetched_count,
                 "extracted_documents": metrics.extracted_count,
@@ -209,14 +220,16 @@ def run_research_workflow(
         )
 
         artifact_refs = backend.get_run_artifact_refs(run.id)
-        artifact_refs.update({
-            "plan": plan_path,
-            "sources": sources_path,
-            "fetched": fetched_path,
-            "extracted": extracted_path,
-            "report": report_path,
-            "final_result": final_result_path,
-        })
+        artifact_refs.update(
+            {
+                "plan": plan_path,
+                "sources": sources_path,
+                "fetched": fetched_path,
+                "extracted": extracted_path,
+                "report": report_path,
+                "final_result": final_result_path,
+            }
+        )
 
         return RunResearchOutput(
             run=run,
@@ -232,6 +245,6 @@ def run_research_workflow(
             artifact_paths=backend.list_run_artifacts(run.id),
             artifact_refs=artifact_refs,
         )
-    except Exception as exc:  # pragma: no cover - defensive exception boundary
+    except Exception as exc:  # pragma: no cover
         backend.update_run_status(run.id, RunStatus.FAILED, error_message=str(exc))
         raise WorkflowError(f"Run {run.id} failed: {exc}") from exc

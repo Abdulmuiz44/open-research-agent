@@ -13,6 +13,7 @@ def test_settings_defaults() -> None:
     assert settings.app_name == "open-research-agent"
     assert settings.api_port == 8000
     assert settings.default_model
+    assert str(settings.storage_db_path).endswith("outputs/metadata.sqlite3")
 
 
 def test_settings_init_override() -> None:
