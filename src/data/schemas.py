@@ -15,6 +15,14 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     app_name: str
     environment: str
+    version: str
+
+
+class ReadyResponse(BaseModel):
+    """Readiness response payload."""
+
+    status: str = "ready"
+    runs_dir: str
 
 
 class ReadinessResponse(BaseModel):
@@ -39,19 +47,35 @@ class ResearchRunResponse(BaseModel):
     """Response payload exposing run lifecycle metadata."""
 
     run_id: str
-    objective: str
+    query: str
     status: RunStatus
     created_at: datetime
     updated_at: datetime
     message: str | None = None
     search_queries: list[str] = Field(default_factory=list)
+    source_count: int = 0
+    fetched_count: int = 0
+    extracted_count: int = 0
+    findings_count: int = 0
+    artifact_count: int = 0
+    artifact_dir: str | None = None
+    report_path: str | None = None
+    # compatibility fields
+    objective: str | None = None
     discovered_sources: int = 0
     fetched_sources: int = 0
     extracted_documents: int = 0
 
 
+class RunListResponse(BaseModel):
+    """List response for persisted runs."""
+
+    runs: list[ResearchRunResponse] = Field(default_factory=list)
+
+
 class RunArtifactsResponse(BaseModel):
-    """Placeholder list of artifact metadata tied to a run."""
+    """List of artifact metadata tied to a run."""
 
     run_id: str
-    artifact_ids: list[str] = Field(default_factory=list)
+    artifact_paths: list[str] = Field(default_factory=list)
+    artifact_refs: dict[str, str] = Field(default_factory=dict)

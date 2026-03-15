@@ -1,4 +1,4 @@
-"""Environment-driven application configuration and startup validation."""
+﻿"""Environment-driven application configuration and startup validation."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pathlib import Path
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src import __version__
 from src.core.exceptions import ConfigurationError
 
 
@@ -45,7 +46,7 @@ class Settings(BaseSettings):
     search_endpoint: str = "https://duckduckgo.com/html/"
     request_timeout_seconds: float = 10.0
     request_retries: int = 2
-    user_agent: str = "open-research-agent/0.1 (+https://example.local)"
+    user_agent: str = f"open-research-agent/{__version__} (+https://example.local)"
     max_sources_per_run: int = 8
     max_fetch_per_run: int = 6
 
@@ -91,9 +92,7 @@ class Settings(BaseSettings):
                 ipaddress.ip_address(host)
             except ValueError:
                 if "." not in host and host != "localhost":
-                    raise ValueError(
-                        "ORA_API_HOST must be a valid IP address, 'localhost', or a valid hostname."
-                    )
+                    raise ValueError("ORA_API_HOST must be a valid IP address, 'localhost', or a valid hostname.")
         return host
 
     @field_validator("api_port")
@@ -103,48 +102,45 @@ class Settings(BaseSettings):
             raise ValueError("ORA_API_PORT must be between 1 and 65535.")
         return value
 
-    @field_validator(
-        "data_dir",
-        "runs_dir",
-        "artifacts_dir",
-        "reports_dir",
-        "metadata_dir",
-        mode="before",
-    )
+    @field_validator("data_dir", "runs_dir", "artifacts_dir", "reports_dir", "metadata_dir", mode="before")
     @classmethod
     def expand_path(cls, value: str | Path) -> Path:
         return Path(value).expanduser()
 
     @model_validator(mode="after")
-    def derive_local_paths(self) -> Settings:
-        base = self.data_dir
-
+    def validate_runtime_limits(self) -> "Settings":
         if str(self.runs_dir) == "outputs/runs":
-            self.runs_dir = base / "runs"
+            self.runs_dir = self.data_dir / "runs"
         if str(self.artifacts_dir) == "outputs/artifacts":
-            self.artifacts_dir = base / "artifacts"
+            self.artifacts_dir = self.data_dir / "artifacts"
         if str(self.reports_dir) == "outputs/reports":
-            self.reports_dir = base / "reports"
+            self.reports_dir = self.data_dir / "reports"
         if str(self.metadata_dir) == "outputs/metadata":
-            self.metadata_dir = base / "metadata"
+            self.metadata_dir = self.data_dir / "metadata"
 
-        return self
+        if self.request_timeout_seconds <= 0:
+            raise ConfigurationError("ORA_REQUEST_TIMEOUT_SECONDS must be greater than 0")
+        if self.request_retries < 0:
+            raise ConfigurationError("ORA_REQUEST_RETRIES must be 0 or greater")
+        if self.max_fetch_per_run > self.max_sources_per_run:
+            raise ConfigurationError("ORA_MAX_FETCH_PER_RUN cannot exceed ORA_MAX_SOURCES_PER_RUN")
+        if self.runs_dir == self.artifacts_dir:
+            raise ConfigurationError("ORA_RUNS_DIR and ORA_ARTIFACTS_DIR must be different paths")
 
-    def output_directories(self) -> tuple[Path, ...]:
-        """Return all persistent local directories required at startup."""
-        return (self.data_dir, self.runs_dir, self.artifacts_dir, self.reports_dir, self.metadata_dir)
-
-    def validate_runtime(self) -> None:
-        """Validate runtime requirements that should fail-fast before startup."""
         required_for_provider: dict[str, tuple[str | None, str]] = {
             "serpapi": (self.search_api_key, "ORA_SEARCH_API_KEY"),
             "tavily": (self.search_api_key, "ORA_SEARCH_API_KEY"),
         }
         key_check = required_for_provider.get(self.search_provider.lower())
         if key_check and not key_check[0]:
-            raise ConfigurationError(
-                f"Search provider '{self.search_provider}' requires setting {key_check[1]}."
-            )
+            raise ConfigurationError(f"Search provider '{self.search_provider}' requires setting {key_check[1]}.")
+        return self
+
+    def output_directories(self) -> tuple[Path, ...]:
+        return (self.data_dir, self.runs_dir, self.artifacts_dir, self.reports_dir, self.metadata_dir)
+
+    def validate_runtime(self) -> None:
+        Settings.model_validate(self.model_dump())
 
 
 @lru_cache(maxsize=1)

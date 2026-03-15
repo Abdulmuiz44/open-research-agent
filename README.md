@@ -1,107 +1,86 @@
 # Open Research Agent
 
+Open Research Agent is a Python-first, CLI-first system for bounded research workflows over web sources with local artifact persistence.
+
 ## Status
 
-**Production Packaging and Deployment Readiness Implemented**
+**v0.1.0 MVP Hardened**
 
-Open Research Agent is a Python-first, CLI-first MVP for bounded local research runs using deterministic discovery/fetch/extract/analyze/report steps.
+## What it does today
 
-## MVP Scope Alignment
+- Accepts a bounded objective and constraints.
+- Generates deterministic research queries.
+- Discovers sources using a provider abstraction.
+- Fetches pages with HTTP-first behavior and bounded browser fallback decisioning.
+- Extracts normalized content and metadata from fetched pages.
+- Produces deterministic report artifacts and JSON run summaries.
+- Persists run metadata and artifact references for inspection.
+- Exposes CLI and API run retrieval and artifact inspection paths.
 
-This repository remains aligned with `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/MVP_SCOPE.md`, and `docs/TASKLIST.md`:
+## Implemented MVP surface
 
-- single-service, local-first runtime
-- no frontend UI
-- no distributed infrastructure
-- no remote database dependency
-- no Kubernetes/cloud deployment stack
+### CLI
 
-## Development Run (Local)
+- `ora health`
+- `ora research "<objective>" --max-sources 6`
+- `ora get <run_id>`
+- `ora list`
+- `ora artifacts <run_id>`
 
-1. Install Python 3.11+.
-2. Install dependencies:
-   - `uv sync --extra dev`
-3. Optional `.env` overrides with `ORA_` prefix.
+### API
 
-CLI commands:
+- `GET /health`
+- `GET /ready`
+- `POST /runs`
+- `GET /runs`
+- `GET /runs/{run_id}`
+- `GET /runs/{run_id}/artifacts`
 
-- `uv run ora --help`
-- `uv run ora health`
-- `uv run ora research "Compare open-source HTML extraction libraries" --max-sources 6`
+## Run data and artifacts
 
-API command:
+- Run metadata storage: in-memory run index + local run directories.
+- Run artifact root: `outputs/runs/<run_id>/`
+- Key artifacts:
+  - `manifest.json`
+  - `plan.json`
+  - `sources.json`
+  - `fetched/documents.json`
+  - `extracted/documents.json`
+  - `analysis/final_result.json`
+  - `report/report.md`
 
-- `uv run uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --reload`
+## Health/readiness behavior
 
-## Packaged / Containerized Run
+- `/health` reports service metadata.
+- `/ready` verifies local runtime readiness with resolved run storage path.
 
-### Docker build + run
+## Local packaged run behavior
 
-- Build: `docker build -t open-research-agent:local .`
-- Run:
-  - `docker run --rm -p 8000:8000 --env-file .env -v "$(pwd)/outputs:/app/outputs" open-research-agent:local`
+- Install: `uv sync --extra dev`
+- CLI health: `uv run ora health`
+- Run research: `uv run ora research "Compare open-source HTML extraction libraries" --max-sources 6`
+- API: `uv run uvicorn apps.api.main:app --host 127.0.0.1 --port 8000`
 
-### Compose run
+## Deferred beyond v0.1.0
 
-- `docker compose up --build`
+- Full crawler automation and autonomous browsing.
+- Browser automation implementation details (placeholder fetch path only).
+- LLM-generated prose reporting.
+- Vector search, OCR, and PDF parsing.
+- Distributed persistence/infrastructure.
 
-The compose setup mounts local `./outputs` into container `/app/outputs`.
+## Current limitations
 
-## Environment Variables
+- Search results vary by remote provider behavior.
+- Browser fetch execution is intentionally deferred.
+- Extraction is intentionally lightweight and deterministic.
+- Persistence is local MVP storage, not production-grade.
 
-All configuration uses `ORA_` prefix.
+## Release baseline
 
-Required in specific cases:
+See:
 
-- `ORA_SEARCH_API_KEY` when `ORA_SEARCH_PROVIDER` is `serpapi` or `tavily`
-
-Common optional settings:
-
-- `ORA_ENVIRONMENT` (`development|test|staging|production`)
-- `ORA_SERVICE_MODE` (`api|cli`)
-- `ORA_LOG_LEVEL` (`DEBUG|INFO|WARNING|ERROR|CRITICAL`)
-- `ORA_API_HOST` (IP, `localhost`, or hostname)
-- `ORA_API_PORT` (1..65535)
-- `ORA_DATA_DIR` (default `outputs`)
-- `ORA_RUNS_DIR` (default `<ORA_DATA_DIR>/runs`)
-- `ORA_ARTIFACTS_DIR` (default `<ORA_DATA_DIR>/artifacts`)
-- `ORA_REPORTS_DIR` (default `<ORA_DATA_DIR>/reports`)
-- `ORA_METADATA_DIR` (default `<ORA_DATA_DIR>/metadata`)
-- `ORA_SEARCH_PROVIDER`
-- `ORA_SEARCH_ENDPOINT`
-- `ORA_REQUEST_TIMEOUT_SECONDS`
-- `ORA_REQUEST_RETRIES`
-- `ORA_USER_AGENT`
-- `ORA_MAX_SOURCES_PER_RUN`
-- `ORA_MAX_FETCH_PER_RUN`
-
-Provider-related optional settings:
-
-- `ORA_OPENAI_API_KEY`
-- `ORA_ANTHROPIC_API_KEY`
-
-## Health and Readiness
-
-- `GET /health`: basic liveness for service process and config load.
-- `GET /ready`: readiness for local startup dependencies (validated writable persistence paths and bootstrap completion).
-
-## Persistence and Artifact Paths
-
-At startup, runtime prepares and validates these paths:
-
-- `<ORA_DATA_DIR>`
-- `<ORA_DATA_DIR>/runs`
-- `<ORA_DATA_DIR>/artifacts`
-- `<ORA_DATA_DIR>/reports`
-- `<ORA_DATA_DIR>/metadata`
-
-Paths are created if missing and checked for writability.
-
-## Current Deployment Limitations (Intentional)
-
-- single-process local MVP deployment only
-- in-memory storage backend is still used for run metadata
-- no background workers or distributed job orchestration
-- no managed observability stack
-
-See `docs/DEPLOYMENT.md` for operational details and troubleshooting.
+- `CHANGELOG.md`
+- `docs/RELEASE_NOTES_V0_1.md`
+- `docs/RELEASE_CHECKLIST.md`
+- `docs/TESTING.md`

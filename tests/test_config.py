@@ -1,4 +1,4 @@
-"""Configuration loading tests."""
+﻿"""Configuration loading tests."""
 
 from __future__ import annotations
 
@@ -38,6 +38,12 @@ def test_invalid_environment_fails_validation() -> None:
 
 
 def test_provider_requires_api_key() -> None:
-    settings = Settings(search_provider="serpapi", search_api_key=None)
     with pytest.raises(ConfigurationError):
-        settings.validate_runtime()
+        Settings(search_provider="serpapi", search_api_key=None)
+
+
+def test_settings_validation_errors() -> None:
+    with pytest.raises(ConfigurationError):
+        Settings(request_timeout_seconds=0)
+    with pytest.raises(ConfigurationError):
+        Settings(max_sources_per_run=2, max_fetch_per_run=3)

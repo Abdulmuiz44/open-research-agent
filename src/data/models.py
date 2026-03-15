@@ -23,6 +23,14 @@ class ArtifactKind(str, Enum):
     REPORT_DRAFT = "report_draft"
 
 
+class ExtractionStatus(str, Enum):
+    """Deterministic extraction outcomes."""
+
+    SUCCESS = "success"
+    EMPTY = "empty"
+    FAILED = "failed"
+
+
 class ResearchRequest(BaseModel):
     """Input payload for a bounded research run."""
 
@@ -105,9 +113,14 @@ class ExtractedDocument(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     run_id: str
     source_id: str
+    source_url: HttpUrl
+    final_url: HttpUrl | None = None
+    domain: str | None = None
     title: str | None = None
+    raw_content: str | None = None
     content: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+    extraction_status: ExtractionStatus = ExtractionStatus.SUCCESS
     content_hash: str | None = None
     extracted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -136,11 +149,28 @@ class AnalysisArtifact(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class RunMetrics(BaseModel):
+    """Standardized run stage counts for CLI/API/workflow outputs."""
+
+    source_count: int = 0
+    fetched_count: int = 0
+    extracted_count: int = 0
+    findings_count: int = 0
+
+
 class Report(BaseModel):
-    """Simple deterministic report payload."""
+    """Deterministic report payload with structured sections and markdown."""
 
     run_id: str
     objective: str
+    title: str
+    generated_at: datetime
+    executive_summary: str
     findings: list[str] = Field(default_factory=list)
+    major_themes: list[str] = Field(default_factory=list)
+    contradictions_disagreements: list[str] = Field(default_factory=list)
+    evidence_backed_sources: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
+    suggested_next_steps: list[str] = Field(default_factory=list)
+    artifact_summary: list[str] = Field(default_factory=list)
     markdown: str
