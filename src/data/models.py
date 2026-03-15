@@ -150,10 +150,18 @@ class AnalysisArtifact(BaseModel):
 
 
 class Report(BaseModel):
-    """Simple deterministic report payload."""
+    """Deterministic report payload with structured sections and markdown."""
 
     run_id: str
     objective: str
+    title: str
+    generated_at: datetime
+    executive_summary: str
     findings: list[str] = Field(default_factory=list)
+    major_themes: list[str] = Field(default_factory=list)
+    contradictions_disagreements: list[str] = Field(default_factory=list)
+    evidence_backed_sources: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
+    suggested_next_steps: list[str] = Field(default_factory=list)
+    artifact_summary: list[str] = Field(default_factory=list)
     markdown: str
