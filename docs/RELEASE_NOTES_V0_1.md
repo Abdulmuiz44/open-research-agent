@@ -1,8 +1,8 @@
 # Release Notes: v0.1.0
 
-## Definition of v0.1
+## Definition of v0.1.0
 
-v0.1 is a hardened MVP for bounded local research runs with deterministic artifact generation and inspectable outputs through CLI and API.
+v0.1.0 is a hardened MVP for bounded local research runs with deterministic artifact generation and inspectable outputs through CLI and API.
 
 ## Included
 

@@ -4,7 +4,7 @@ Open Research Agent is a Python-first, CLI-first system for bounded research wor
 
 ## Status
 
-**v0.1 MVP Hardened**
+**v0.1.0 MVP Hardened**
 
 ## What it does today
 
@@ -61,7 +61,7 @@ Open Research Agent is a Python-first, CLI-first system for bounded research wor
 - Run research: `uv run ora research "Compare open-source HTML extraction libraries" --max-sources 6`
 - API: `uv run uvicorn apps.api.main:app --host 127.0.0.1 --port 8000`
 
-## Deferred beyond v0.1
+## Deferred beyond v0.1.0
 
 - Full crawler automation and autonomous browsing.
 - Browser automation implementation details (placeholder fetch path only).
