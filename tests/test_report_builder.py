@@ -36,5 +36,9 @@ def test_report_markdown_contains_required_sections() -> None:
     )
     assert "# Research Report" in markdown
     assert "Run ID: r1" in markdown
+    assert "## Summary" in markdown
+    assert "## Counts" in markdown
     assert "Extracted documents: 1" in markdown
+    assert "## Key Findings" in markdown
+    assert "## Limitations" in markdown
     assert "## Evidence" in markdown

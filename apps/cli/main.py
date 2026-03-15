@@ -6,9 +6,11 @@ import typer
 
 from src.core.config import get_settings
 from src.core.logging import configure_logging_from_settings, get_logger
+from src.data.storage import LocalStorageStub
 from src.workflows.run_research import RunResearchInput, run_research_workflow
 
 app = typer.Typer(help="Open Research Agent command line interface.")
+storage = LocalStorageStub()
 
 
 @app.callback()
@@ -32,7 +34,7 @@ def health() -> None:
 @app.command()
 def research(objective: str, max_sources: int = 6) -> None:
     """Run bounded research workflow."""
-    output = run_research_workflow(RunResearchInput(objective=objective, max_sources=max_sources))
+    output = run_research_workflow(RunResearchInput(objective=objective, max_sources=max_sources), storage=storage)
     fetched_success = len([item for item in output.fetched_documents if item.success])
 
     typer.echo(f"run_id: {output.run.id}")
@@ -56,6 +58,23 @@ def analyze(run_id: str) -> None:
     """Analyze command remains intentionally narrow."""
     _ = run_id
     typer.echo("analyze command is intentionally limited; use research for full flow.")
+
+
+@app.command("inspect")
+def inspect_run(run_id: str) -> None:
+    """Inspect a run by ID from local storage."""
+    run = storage.get_run(run_id)
+    if run is None:
+        typer.echo(f"run not found: {run_id}")
+        raise typer.Exit(code=1)
+
+    artifacts = storage.list_run_artifacts(run_id)
+    refs = storage.get_run_artifact_refs(run_id)
+    typer.echo(f"run_id: {run.id}")
+    typer.echo(f"objective: {run.objective}")
+    typer.echo(f"status: {run.status}")
+    typer.echo(f"artifact_count: {len(artifacts)}")
+    typer.echo(f"report_path: {refs.get('report', 'not_generated')}")
 
 
 if __name__ == "__main__":
