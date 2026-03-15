@@ -25,6 +25,16 @@ class ReadyResponse(BaseModel):
     runs_dir: str
 
 
+class ReadinessResponse(BaseModel):
+    """Readiness response payload."""
+
+    status: str
+    app_name: str
+    environment: str
+    service_mode: str
+    writable_paths: list[str] = Field(default_factory=list)
+
+
 class ResearchRunCreateRequest(BaseModel):
     """Request payload for creating a research run."""
 
@@ -55,6 +65,12 @@ class ResearchRunResponse(BaseModel):
     discovered_sources: int = 0
     fetched_sources: int = 0
     extracted_documents: int = 0
+    findings_count: int = 0
+    themes_count: int = 0
+    contradictions_count: int = 0
+    analysis_summary: str | None = None
+    artifact_dir: str | None = None
+    report_path: str | None = None
 
 
 class RunListResponse(BaseModel):
