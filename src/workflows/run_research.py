@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from src.agents.analyst import AnalystAgent
+from src.agents.reporter import ReporterAgent
 from src.core.config import get_settings
 from src.data.models import (
     AnalysisArtifact,
+    AnalysisResult,
     ArtifactKind,
     CandidateSource,
     ExtractedDocument,
@@ -42,8 +47,11 @@ class RunResearchOutput(BaseModel):
     discovered_sources: list[CandidateSource]
     fetched_documents: list[FetchedDocument]
     extracted_documents: list[ExtractedDocument]
+    analysis: AnalysisResult
     analysis_artifacts: list[AnalysisArtifact]
     report_markdown: str
+    artifact_dir: str
+    report_path: str
 
 
 def initialize_run(payload: RunResearchInput) -> ResearchRun:
@@ -60,11 +68,37 @@ def _build_plan(payload: RunResearchInput) -> ResearchPlan:
     )
 
 
+def _save_analysis_artifacts(run_id: str, analysis: AnalysisResult) -> tuple[str, str]:
+    settings = get_settings()
+    run_dir = Path(settings.runs_dir) / run_id
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+
+    (analysis_dir / "findings.json").write_text(
+        json.dumps([item.model_dump(mode="json") for item in analysis.findings], indent=2),
+        encoding="utf-8",
+    )
+    (analysis_dir / "themes.json").write_text(
+        json.dumps([item.model_dump(mode="json") for item in analysis.themes], indent=2),
+        encoding="utf-8",
+    )
+    (analysis_dir / "contradictions.json").write_text(
+        json.dumps([item.model_dump(mode="json") for item in analysis.contradictions], indent=2),
+        encoding="utf-8",
+    )
+    (analysis_dir / "analysis_summary.json").write_text(
+        json.dumps(analysis.summary.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+
+    return str(analysis_dir), str(run_dir / "report.md")
+
+
 def run_research_workflow(
     payload: RunResearchInput,
     storage: StorageBackend | None = None,
 ) -> RunResearchOutput:
-    """Execute bounded local discovery, fetch, extract, and simple analysis/reporting."""
+    """Execute bounded local discovery, fetch, extract, deterministic analysis, and reporting."""
     backend = storage or LocalStorageStub()
     run = backend.create_run(initialize_run(payload))
     backend.update_run_status(run.id, RunStatus.RUNNING)
@@ -94,25 +128,41 @@ def run_research_workflow(
         for document in extracted:
             backend.save_extracted_document(document)
 
-        summary = (
-            f"Discovered {len(discovered)} sources, fetched {len([d for d in fetched if d.success])}, "
-            f"extracted {len(extracted)} documents."
-        )
-        artifact = AnalysisArtifact(
-            run_id=run.id,
-            kind=ArtifactKind.SUMMARY,
-            summary=summary,
-            evidence_ids=[doc.id for doc in extracted],
-        )
-        backend.save_analysis_artifact_metadata(artifact)
+        analysis = AnalystAgent().analyze_documents(extracted)
 
-        report_lines = [
-            f"# Research Report\n\nObjective: {run.objective}",
-            f"\n## Method\n- queries: {', '.join(queries)}",
-            f"\n## Findings\n- {summary}",
-            "\n## Limitations\n- Analysis is deterministic and lightweight in this MVP stage.",
+        artifacts = [
+            AnalysisArtifact(
+                run_id=run.id,
+                kind=ArtifactKind.SUMMARY,
+                summary=analysis.summary.summary,
+                evidence_ids=[doc.id for doc in extracted],
+            ),
+            AnalysisArtifact(
+                run_id=run.id,
+                kind=ArtifactKind.FINDINGS,
+                summary=f"{len(analysis.findings)} findings",
+                evidence_ids=[doc.id for doc in extracted],
+            ),
+            AnalysisArtifact(
+                run_id=run.id,
+                kind=ArtifactKind.THEMES,
+                summary=f"{len(analysis.themes)} themes",
+                evidence_ids=[doc.id for doc in extracted],
+            ),
+            AnalysisArtifact(
+                run_id=run.id,
+                kind=ArtifactKind.CONTRADICTIONS,
+                summary=f"{len(analysis.contradictions)} contradictions",
+                evidence_ids=[doc.id for doc in extracted],
+            ),
         ]
-        report_markdown = "\n".join(report_lines)
+        for artifact in artifacts:
+            backend.save_analysis_artifact_metadata(artifact)
+
+        report = ReporterAgent().build_report(run_id=run.id, objective=run.objective, analysis=analysis)
+
+        artifact_dir, report_path = _save_analysis_artifacts(run.id, analysis)
+        Path(report_path).write_text(report.markdown, encoding="utf-8")
 
         run = backend.update_run_status(run.id, RunStatus.COMPLETED)
         return RunResearchOutput(
@@ -122,8 +172,11 @@ def run_research_workflow(
             discovered_sources=discovered,
             fetched_documents=fetched,
             extracted_documents=extracted,
-            analysis_artifacts=[artifact],
-            report_markdown=report_markdown,
+            analysis=analysis,
+            analysis_artifacts=artifacts,
+            report_markdown=report.markdown,
+            artifact_dir=artifact_dir,
+            report_path=report_path,
         )
     except Exception as exc:
         run = backend.update_run_status(run.id, RunStatus.FAILED, error_message=str(exc))

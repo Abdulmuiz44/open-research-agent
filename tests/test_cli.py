@@ -31,3 +31,5 @@ def test_cli_research_success(monkeypatch) -> None:
     assert result.exit_code == 0
     assert "run_id:" in result.stdout
     assert "status:" in result.stdout
+    assert "findings:" in result.stdout
+    assert "themes:" in result.stdout

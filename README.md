@@ -4,7 +4,7 @@ Open Research Agent is an open-source, Python-first system for bounded research 
 
 ## Current Status
 
-**Real Search and Fetch Layer Started** — the project now runs a bounded local flow with real source discovery and real HTTP fetching, while extraction/analysis/reporting remain intentionally simple and deterministic.
+**Deterministic Analysis Layer Implemented** — the project now runs a bounded local flow with real source discovery/fetch/extraction and deterministic multi-document analysis with inspectable findings, themes, evidence mappings, contradictions, and report artifacts.
 
 ## What is Implemented Now
 
@@ -14,19 +14,40 @@ Open Research Agent is an open-source, Python-first system for bounded research 
 - Real HTTP fetch layer with timeout/retry/user-agent controls and fetch metadata capture.
 - Bounded browser fetch placeholder interface (`browser_fetch_not_enabled`).
 - Simple bounded extraction path (Trafilatura + HTML title fallback + cleaned body text).
-- End-to-end workflow orchestration from objective → queries → discovery → fetch → extraction → simple summary/report.
-- CLI `research` command executes the bounded real flow.
-- API `POST /runs` executes the bounded real flow and returns run summary counts.
-- Local in-memory run storage remains the default persistence for this phase.
+- Deterministic analysis layer over extracted documents:
+  - recurring-theme detection from repeated terms
+  - structured findings with evidence mapping (source IDs, URLs, snippets, confidence)
+  - conservative contradiction detection for obvious numeric disagreements
+  - run-level analysis summary with bounded limitations
+- Deterministic report generation using analysis outputs.
+- Workflow artifact saving under `outputs/runs/<run_id>/analysis/`:
+  - `findings.json`
+  - `themes.json`
+  - `contradictions.json`
+  - `analysis_summary.json`
+  - plus `outputs/runs/<run_id>/report.md`
+- CLI/API run responses now include analysis counts and artifact/report references.
 
 ## What Remains Intentionally Deferred
 
 - Full crawler orchestration and autonomous browsing.
 - Playwright browser automation implementation.
-- LLM-driven planning/ranking/analysis.
+- LLM-driven planning/ranking/analysis prose generation.
 - Durable database-backed persistence.
-- Vector search and advanced retrieval.
+- Vector search, embeddings, and advanced retrieval.
 - Advanced extraction (PDF/OCR/site-specific strategies).
+- Advanced NLP/ML analysis pipelines.
+
+## Inspecting Analysis Outputs Locally
+
+1. Run research: `uv run ora research "Your objective" --max-sources 6`
+2. Capture `run_id` from CLI output.
+3. Inspect artifacts:
+   - `outputs/runs/<run_id>/analysis/findings.json`
+   - `outputs/runs/<run_id>/analysis/themes.json`
+   - `outputs/runs/<run_id>/analysis/contradictions.json`
+   - `outputs/runs/<run_id>/analysis/analysis_summary.json`
+   - `outputs/runs/<run_id>/report.md`
 
 ## Environment Variables
 
@@ -45,10 +66,6 @@ All runtime config uses `ORA_` prefix:
 1. Install Python 3.11 and `uv`.
 2. Install dependencies:
    - `uv sync --extra dev`
-3. Optional `.env` overrides (example):
-   - `ORA_ENVIRONMENT=development`
-   - `ORA_LOG_LEVEL=INFO`
-   - `ORA_SEARCH_PROVIDER=duckduckgo_html`
 
 ## Run Locally
 
@@ -59,10 +76,3 @@ All runtime config uses `ORA_` prefix:
   - `uv run uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --reload`
 - API run execution:
   - `curl -X POST http://127.0.0.1:8000/runs -H 'content-type: application/json' -d '{"objective":"Compare open-source HTML extraction libraries","max_sources":6}'`
-
-## Known Limitations
-
-- Search provider may vary by network availability and remote result changes.
-- Browser fetch is a non-active placeholder in this step.
-- Extraction quality is intentionally basic and bounded.
-- Local in-memory storage resets when process exits.

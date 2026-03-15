@@ -38,6 +38,12 @@ class ResearchRunResponse(BaseModel):
     discovered_sources: int = 0
     fetched_sources: int = 0
     extracted_documents: int = 0
+    findings_count: int = 0
+    themes_count: int = 0
+    contradictions_count: int = 0
+    analysis_summary: str | None = None
+    artifact_dir: str | None = None
+    report_path: str | None = None
 
 
 class RunArtifactsResponse(BaseModel):

@@ -41,6 +41,11 @@ def research(objective: str, max_sources: int = 6) -> None:
     typer.echo(f"discovered_sources: {len(output.discovered_sources)}")
     typer.echo(f"fetched_sources: {fetched_success}")
     typer.echo(f"extracted_documents: {len(output.extracted_documents)}")
+    typer.echo(f"findings: {len(output.analysis.findings)}")
+    typer.echo(f"themes: {len(output.analysis.themes)}")
+    typer.echo(f"contradictions: {len(output.analysis.contradictions)}")
+    typer.echo(f"artifacts_dir: {output.artifact_dir}")
+    typer.echo(f"report_path: {output.report_path}")
 
 
 @app.command()

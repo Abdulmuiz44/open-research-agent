@@ -32,6 +32,8 @@ def test_create_run_route_executes_workflow(monkeypatch) -> None:
     assert body["status"] == "completed"
     assert body["run_id"]
     assert body["search_queries"]
+    assert "findings_count" in body
+    assert "themes_count" in body
 
 
 def test_get_run_route(monkeypatch) -> None:

@@ -47,11 +47,17 @@ def start_research_run(payload: ResearchRunCreateRequest) -> ResearchRunResponse
         status=output.run.status,
         created_at=output.run.created_at,
         updated_at=output.run.updated_at,
-        message="Run completed with bounded real discovery/fetch flow.",
+        message="Run completed with deterministic analysis artifacts.",
         search_queries=output.search_queries,
         discovered_sources=len(output.discovered_sources),
         fetched_sources=fetched_success,
         extracted_documents=len(output.extracted_documents),
+        findings_count=len(output.analysis.findings),
+        themes_count=len(output.analysis.themes),
+        contradictions_count=len(output.analysis.contradictions),
+        analysis_summary=output.analysis.summary.summary,
+        artifact_dir=output.artifact_dir,
+        report_path=output.report_path,
     )
 
 

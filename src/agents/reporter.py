@@ -1,14 +1,14 @@
-"""Reporter agent skeleton for assembling markdown and JSON reports."""
+"""Reporter agent for assembling deterministic markdown and JSON reports."""
 
 from __future__ import annotations
 
-from src.data.models import AnalysisArtifact, Report
+from src.analysis.report_builder import build_report
+from src.data.models import AnalysisResult, Report
 
 
 class ReporterAgent:
-    """Builds final report outputs from analysis artifacts."""
+    """Builds final report outputs from deterministic analysis results."""
 
-    def build_report(self, artifacts: list[AnalysisArtifact]) -> Report:
-        """Render report sections with citations and limitations."""
-        # TODO: Implement report rendering with citation enforcement.
-        raise NotImplementedError
+    def build_report(self, run_id: str, objective: str, analysis: AnalysisResult) -> Report:
+        """Render report sections with evidence-backed references and limitations."""
+        return build_report(run_id=run_id, objective=objective, analysis=analysis)

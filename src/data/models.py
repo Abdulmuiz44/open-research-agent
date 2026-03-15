@@ -20,6 +20,8 @@ class RunStatus(str, Enum):
 class ArtifactKind(str, Enum):
     SUMMARY = "summary"
     FINDINGS = "findings"
+    THEMES = "themes"
+    CONTRADICTIONS = "contradictions"
     REPORT_DRAFT = "report_draft"
 
 
@@ -123,6 +125,61 @@ class ExtractedTable(BaseModel):
     column_names: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     extracted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class Finding(BaseModel):
+    """Deterministic finding tied to one or more sources and snippets."""
+
+    id: str
+    title: str
+    summary: str
+    theme: str | None = None
+    supporting_source_ids: list[str] = Field(default_factory=list)
+    supporting_source_urls: list[str] = Field(default_factory=list)
+    supporting_snippets: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class Theme(BaseModel):
+    """Recurring theme detected across extracted documents."""
+
+    id: str
+    label: str
+    key_terms: list[str] = Field(default_factory=list)
+    finding_ids: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class Contradiction(BaseModel):
+    """Conservative conflict marker where sources disagree on a numeric claim."""
+
+    id: str
+    topic: str
+    summary: str
+    source_ids: list[str] = Field(default_factory=list)
+    source_urls: list[str] = Field(default_factory=list)
+    snippets: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class AnalysisSummary(BaseModel):
+    """Run-level deterministic analysis overview."""
+
+    total_documents: int = 0
+    total_findings: int = 0
+    total_themes: int = 0
+    total_contradictions: int = 0
+    summary: str = ""
+    limitations: list[str] = Field(default_factory=list)
+
+
+class AnalysisResult(BaseModel):
+    """Structured result from deterministic analysis stage."""
+
+    findings: list[Finding] = Field(default_factory=list)
+    themes: list[Theme] = Field(default_factory=list)
+    contradictions: list[Contradiction] = Field(default_factory=list)
+    summary: AnalysisSummary = Field(default_factory=AnalysisSummary)
 
 
 class AnalysisArtifact(BaseModel):
