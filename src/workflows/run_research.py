@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -24,6 +25,7 @@ from src.search.provider import build_search_provider
 from src.search.queries import build_queries
 from src.web.crawler import Crawler
 from src.web.extractor import Extractor
+from src.workflows.artifact_manifest import ManifestBuilder, RunArtifactLayout
 
 
 class RunResearchInput(BaseModel):
@@ -76,6 +78,13 @@ def run_research_workflow(
     try:
         plan = _build_plan(payload)
         queries = build_queries(plan)
+        manifest = ManifestBuilder(run_id=run.id, objective=run.objective, created_at=run.created_at)
+
+        backend.save_artifact_json(
+            run.id,
+            RunArtifactLayout.MANIFEST,
+            manifest.payload(status=run.status, updated_at=run.updated_at),
+        )
 
         provider = build_search_provider(get_settings())
         crawler = Crawler(provider)
@@ -85,38 +94,15 @@ def run_research_workflow(
         extractor = Extractor()
         extracted = [extractor.extract(doc) for doc in fetched if doc.success and (doc.raw_html or doc.text)]
 
-        backend.save_artifact_json(
-            run.id,
-            "manifest.json",
-            {
-                "run_id": run.id,
-                "objective": run.objective,
-                "status": "running",
-                "created_at": run.created_at.isoformat(),
-            },
-        )
-        plan_path = backend.save_artifact_json(run.id, "plan.json", plan.model_dump(mode="json"))
+        plan_path = backend.save_artifact_json(run.id, RunArtifactLayout.PLAN, plan.model_dump(mode="json"))
+        manifest.add(artifact_id="plan", kind="plan", path=plan_path)
+
         sources_path = backend.save_artifact_json(
             run.id,
-            "sources.json",
+            RunArtifactLayout.SOURCES,
             [source.model_dump(mode="json") for source in discovered],
         )
-        fetched_path = backend.save_artifact_json(
-            run.id,
-            "fetched/documents.json",
-            [
-                {
-                    "source_id": doc.source_id,
-                    "requested_url": str(doc.requested_url),
-                    "final_url": str(doc.final_url) if doc.final_url else None,
-                    "status_code": doc.status_code,
-                    "success": doc.success,
-                    "error": doc.error,
-                    "fetched_at": doc.fetched_at.isoformat(),
-                }
-                for doc in fetched
-            ],
-        )
+        manifest.add(artifact_id="sources", kind="sources", path=sources_path)
 
         for source in discovered:
             backend.save_source(
@@ -128,14 +114,18 @@ def run_research_workflow(
                     title=source.title,
                 )
             )
+
+        fetched_paths: list[str] = []
+        for document in fetched:
+            backend.save_fetched_document_metadata(document)
+            fetched_path = backend.get_run_artifact_refs(run.id)[f"fetched_{document.source_id}"]
+            fetched_paths.append(fetched_path)
+            manifest.add(artifact_id=document.id, kind="fetched_metadata", path=fetched_path)
+
         for document in extracted:
             backend.save_extracted_document(document)
-
-        extracted_path = backend.save_artifact_json(
-            run.id,
-            "extracted/documents.json",
-            [document.model_dump(mode="json") for document in extracted],
-        )
+            extracted_file_path = backend.get_run_artifact_refs(run.id)[f"extracted_{document.source_id}"]
+            manifest.add(artifact_id=document.id, kind="extracted_metadata", path=extracted_file_path)
 
         fetched_success = len([d for d in fetched if d.success])
         summary = f"Discovered {len(discovered)} sources, fetched {fetched_success}, extracted {len(extracted)} documents."
@@ -146,6 +136,8 @@ def run_research_workflow(
             evidence_ids=[doc.id for doc in extracted],
         )
         backend.save_analysis_artifact_metadata(artifact)
+        analysis_path = backend.get_run_artifact_refs(run.id)[f"analysis_{artifact.id}"]
+        manifest.add(artifact_id=artifact.id, kind=f"analysis_{artifact.kind.value}", path=analysis_path)
 
         report_markdown = render_report_markdown(
             run_id=run.id,
@@ -156,7 +148,8 @@ def run_research_workflow(
             findings=[summary],
             limitations=["Analysis is deterministic and lightweight in this MVP stage."],
         )
-        report_path = backend.save_artifact_markdown(run.id, "report/report.md", report_markdown)
+        report_path = backend.save_artifact_markdown(run.id, RunArtifactLayout.REPORT, report_markdown)
+        manifest.add(artifact_id="report", kind="report", path=report_path)
 
         run = backend.update_run_status(run.id, RunStatus.COMPLETED)
         final_result_path = backend.save_artifact_json(
@@ -173,34 +166,29 @@ def run_research_workflow(
                 "report_path": report_path,
             },
         )
-        backend.save_artifact_json(
+        manifest.add(artifact_id="final_result", kind="analysis_result", path=final_result_path)
+
+        manifest_path = backend.save_artifact_json(
             run.id,
-            "manifest.json",
-            {
-                "run_id": run.id,
-                "objective": run.objective,
-                "status": run.status.value,
-                "created_at": run.created_at.isoformat(),
-                "updated_at": run.updated_at.isoformat(),
-                "paths": {
-                    "plan": plan_path,
-                    "sources": sources_path,
-                    "fetched": fetched_path,
-                    "extracted": extracted_path,
-                    "report": report_path,
-                    "final_result": final_result_path,
-                },
-            },
+            RunArtifactLayout.MANIFEST,
+            manifest.payload(status=run.status, updated_at=run.updated_at),
+        )
+        manifest.add(artifact_id=RunArtifactLayout.MANIFEST, kind="manifest", path=manifest_path)
+        manifest_path = backend.save_artifact_json(
+            run.id,
+            RunArtifactLayout.MANIFEST,
+            manifest.payload(status=run.status, updated_at=run.updated_at),
         )
 
         artifact_refs = backend.get_run_artifact_refs(run.id)
+        if fetched_paths:
+            artifact_refs["fetched"] = fetched_paths[0]
         artifact_refs.update(
             {
                 "plan": plan_path,
                 "sources": sources_path,
-                "fetched": fetched_path,
-                "extracted": extracted_path,
                 "report": report_path,
+                "manifest": manifest_path,
                 "final_result": final_result_path,
             }
         )
@@ -213,7 +201,7 @@ def run_research_workflow(
             extracted_documents=extracted,
             analysis_artifacts=[artifact],
             report_markdown=report_markdown,
-            artifact_dir=str((get_settings().runs_dir / run.id).resolve()),
+            artifact_dir=str(Path(manifest_path).parent.resolve()),
             artifact_paths=backend.list_run_artifacts(run.id),
             artifact_refs=artifact_refs,
         )

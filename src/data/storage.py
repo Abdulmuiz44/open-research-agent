@@ -10,7 +10,15 @@ from pathlib import Path
 from typing import Any
 
 from src.core.config import get_settings
-from src.data.models import AnalysisArtifact, ExtractedDocument, ExtractedTable, ResearchRun, RunStatus, Source
+from src.data.models import (
+    AnalysisArtifact,
+    ExtractedDocument,
+    ExtractedTable,
+    FetchedDocument,
+    ResearchRun,
+    RunStatus,
+    Source,
+)
 
 
 class StorageBackend(ABC):
@@ -31,6 +39,10 @@ class StorageBackend(ABC):
     @abstractmethod
     def save_extracted_document(self, document: ExtractedDocument) -> ExtractedDocument:
         """Persist extracted document metadata for a run."""
+
+    @abstractmethod
+    def save_fetched_document_metadata(self, document: FetchedDocument) -> FetchedDocument:
+        """Persist fetched document metadata for a run."""
 
     @abstractmethod
     def save_extracted_table_metadata(self, table: ExtractedTable) -> ExtractedTable:
@@ -93,6 +105,27 @@ class LocalStorageStub(StorageBackend):
         self._artifact_refs[document.run_id][f"extracted_{document.source_id}"] = path
         return document
 
+    def save_fetched_document_metadata(self, document: FetchedDocument) -> FetchedDocument:
+        path = self.save_artifact_json(
+            document.run_id,
+            f"fetched/{document.source_id}.json",
+            {
+                "id": document.id,
+                "source_id": document.source_id,
+                "requested_url": str(document.requested_url),
+                "final_url": str(document.final_url) if document.final_url else None,
+                "status_code": document.status_code,
+                "content_type": document.content_type,
+                "content_length": document.content_length,
+                "fetch_method": document.fetch_method,
+                "success": document.success,
+                "error": document.error,
+                "fetched_at": document.fetched_at.isoformat(),
+            },
+        )
+        self._artifact_refs[document.run_id][f"fetched_{document.source_id}"] = path
+        return document
+
     def save_extracted_table_metadata(self, table: ExtractedTable) -> ExtractedTable:
         self._track(table.run_id, f"analysis/table_{table.id}.json")
         return table
@@ -107,6 +140,7 @@ class LocalStorageStub(StorageBackend):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         self._track(run_id, relative_path)
+        self._artifact_refs[run_id][relative_path] = str(path)
         return str(path)
 
     def save_artifact_markdown(self, run_id: str, relative_path: str, markdown: str) -> str:
@@ -114,6 +148,7 @@ class LocalStorageStub(StorageBackend):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(markdown, encoding="utf-8")
         self._track(run_id, relative_path)
+        self._artifact_refs[run_id][relative_path] = str(path)
         return str(path)
 
     def get_run(self, run_id: str) -> ResearchRun | None:
