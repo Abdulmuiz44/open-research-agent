@@ -1,10 +1,21 @@
-"""Report builder for deterministic markdown and structured report outputs."""
+﻿"""Report builder for deterministic markdown and structured report outputs."""
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from src.data.models import AnalysisArtifact, CandidateSource, ExtractedDocument, Report
+from src.data.models import (
+    AnalysisArtifact,
+    ArtifactKind,
+    ArtifactReference,
+    CandidateSource,
+    ExtractedDocument,
+    FindingReference,
+    Report,
+    ReportMetadata,
+    ReportSection,
+    SourceReference,
+)
 
 
 def _sorted_sources(sources: list[CandidateSource]) -> list[CandidateSource]:
@@ -125,6 +136,37 @@ def build_report(
     )
 
     title = f"Research Report for {objective}"
+    finding_references = [
+        FindingReference(
+            finding_id=artifact.id,
+            text=artifact.summary,
+            evidence_ids=list(artifact.evidence_ids),
+            source_ids=[document.source_id for document in ordered_documents if document.id in artifact.evidence_ids],
+        )
+        for artifact in ordered_artifacts
+        if artifact.summary
+    ]
+    source_references = [
+        SourceReference(source_id=source.id, url=source.url, title=source.title, domain=source.domain)
+        for source in ordered_sources
+    ]
+    artifact_references = [
+        ArtifactReference(
+            kind=artifact.kind,
+            path=f"analysis/{artifact.kind.value}_{artifact.id}.json",
+            created_at=artifact.created_at,
+            metadata={"summary": artifact.summary},
+        )
+        for artifact in ordered_artifacts
+    ]
+    artifact_references.append(
+        ArtifactReference(kind=ArtifactKind.REPORT_DRAFT, path="report/report.md", metadata={"format": "markdown"})
+    )
+    sections = [
+        ReportSection(id="executive-summary", name="Executive Summary", content=executive_summary),
+        ReportSection(id="limitations", name="Limitations", content="\n".join(limitations)),
+    ]
+
     return Report(
         run_id=run_id,
         objective=objective,
@@ -138,5 +180,10 @@ def build_report(
         limitations=limitations,
         suggested_next_steps=next_steps,
         artifact_summary=artifact_summary,
+        metadata=ReportMetadata(title=title, run_id=run_id, objective=objective, generated_at=generated_at),
+        sections=sections,
+        finding_references=finding_references,
+        source_references=source_references,
+        artifacts=artifact_references,
         markdown="\n".join(markdown_lines),
     )
