@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -213,7 +214,7 @@ def run_research_workflow(
             extracted_documents=extracted,
             analysis_artifacts=[artifact],
             report_markdown=report_markdown,
-            artifact_dir=str((get_settings().runs_dir / run.id).resolve()),
+            artifact_dir=str(Path(plan_path).parent.resolve()),
             artifact_paths=backend.list_run_artifacts(run.id),
             artifact_refs=artifact_refs,
         )
