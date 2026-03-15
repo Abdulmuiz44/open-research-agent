@@ -6,8 +6,8 @@ import asyncio
 
 from pydantic import BaseModel, Field
 
-from src.analysis.report_builder import render_report_markdown
 from src.core.config import get_settings
+from src.agents.reporter import ReporterAgent
 from src.data.models import (
     AnalysisArtifact,
     ArtifactKind,
@@ -147,15 +147,16 @@ def run_research_workflow(
         )
         backend.save_analysis_artifact_metadata(artifact)
 
-        report_markdown = render_report_markdown(
+        reporter = ReporterAgent()
+        report = reporter.build_report(
             run_id=run.id,
             objective=run.objective,
-            summary=summary,
-            sources=discovered,
             extracted_documents=extracted,
-            findings=[summary],
-            limitations=["Analysis is deterministic and lightweight in this MVP stage."],
+            analysis_artifacts=[artifact],
+            sources=discovered,
+            generated_at=run.updated_at,
         )
+        report_markdown = report.markdown
         report_path = backend.save_artifact_markdown(run.id, "report/report.md", report_markdown)
 
         run = backend.update_run_status(run.id, RunStatus.COMPLETED)
@@ -213,7 +214,7 @@ def run_research_workflow(
             extracted_documents=extracted,
             analysis_artifacts=[artifact],
             report_markdown=report_markdown,
-            artifact_dir=str((get_settings().runs_dir / run.id).resolve()),
+            artifact_dir=str((backend.base_dir / run.id).resolve()) if isinstance(backend, LocalStorageStub) else str((get_settings().runs_dir / run.id).resolve()),
             artifact_paths=backend.list_run_artifacts(run.id),
             artifact_refs=artifact_refs,
         )
