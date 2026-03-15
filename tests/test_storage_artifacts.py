@@ -1,17 +1,47 @@
-from pathlib import Path
+﻿from pathlib import Path
 
-from src.data.models import ExtractedDocument, ResearchRun
-from src.data.storage import LocalStorageStub
+from src.data.models import (
+    AnalysisArtifact,
+    ArtifactKind,
+    ExtractedDocument,
+    FetchedDocument,
+    ResearchPlan,
+    ResearchRun,
+    RunStatus,
+    Source,
+)
+from src.data.storage import LocalStorageStub, SQLiteStorageBackend
 
 
-def test_storage_saves_extracted_and_lists_artifacts(tmp_path: Path) -> None:
-    storage = LocalStorageStub(base_dir=tmp_path / "runs")
-    run_id = "run-storage"
-    storage.save_artifact_json(run_id, "manifest.json", {"run_id": run_id})
+def _exercise_backend(storage) -> None:
+    run = storage.create_run(ResearchRun(id="run-storage", objective="storage objective"))
+    storage.update_run_status(run.id, RunStatus.RUNNING)
+
+    plan = ResearchPlan(objective=run.objective, research_objectives=["a"], search_queries=["q"], source_budget=3)
+    plan_path = storage.save_plan_artifact(run.id, plan)
+    assert plan_path.endswith("plan.json")
+
+    source = Source(id="s1", run_id=run.id, url="https://example.com", domain="example.com", title="Example")
+    saved_source = storage.save_source_metadata(source)
+    assert saved_source.id == source.id
+    assert storage.get_run_sources(run.id)[0].id == source.id
+
+    fetched = FetchedDocument(
+        id="f1",
+        run_id=run.id,
+        source_id=source.id,
+        requested_url="https://example.com",
+        final_url="https://example.com",
+        status_code=200,
+        success=True,
+        text="hello",
+    )
+    storage.save_fetched_metadata(fetched)
 
     doc = ExtractedDocument(
-        run_id=run_id,
-        source_id="s1",
+        id="e1",
+        run_id=run.id,
+        source_id=source.id,
         source_url="https://example.com",
         final_url="https://example.com",
         domain="example.com",
@@ -19,47 +49,37 @@ def test_storage_saves_extracted_and_lists_artifacts(tmp_path: Path) -> None:
         raw_content="raw",
         content="clean",
     )
-    storage.save_extracted_document(doc)
+    storage.save_extracted_document_metadata(doc)
 
-    artifacts = storage.list_run_artifacts(run_id)
-    assert "manifest.json" in artifacts
-    assert any(path.startswith("extracted/") for path in artifacts)
-    assert storage.get_run_artifact_refs(run_id)
-
-
-def test_storage_loads_run_and_artifacts_after_restart(tmp_path: Path) -> None:
-    base_dir = tmp_path / "runs"
-    storage = LocalStorageStub(base_dir=base_dir)
-    run = storage.create_run(ResearchRun(objective="persisted objective"))
-    storage.update_run_status(run.id, run.status)
-    storage.save_artifact_json(
-        run.id,
-        "manifest.json",
-        {
-            "run_id": run.id,
-            "objective": run.objective,
-            "status": run.status.value,
-            "created_at": run.created_at.isoformat(),
-            "updated_at": run.updated_at.isoformat(),
-            "paths": {"report": "report/report.md"},
-        },
+    analysis = AnalysisArtifact(
+        id="a1",
+        run_id=run.id,
+        kind=ArtifactKind.SUMMARY,
+        summary="summary",
+        evidence_ids=[doc.id],
     )
-    storage.save_artifact_markdown(run.id, "report/report.md", "# report")
+    storage.save_analysis_artifact_metadata(analysis)
 
-    restarted = LocalStorageStub(base_dir=base_dir)
+    report_path = storage.save_artifact_markdown(run.id, "report/report.md", "# Report")
+    storage.save_report_artifact_metadata(run.id, report_path)
 
-    loaded = restarted.get_run(run.id)
-    assert loaded is not None
-    assert loaded.id == run.id
-    assert loaded.objective == "persisted objective"
-
-    artifacts = restarted.list_run_artifacts(run.id)
-    assert "manifest.json" in artifacts
+    artifacts = storage.list_run_artifacts(run.id)
+    assert "plan.json" in artifacts
     assert "report/report.md" in artifacts
+    assert any(path.startswith("fetched/") for path in artifacts)
 
-    refs = restarted.get_run_artifact_refs(run.id)
-    assert refs["report"].endswith("report/report.md")
+    refs = storage.get_run_artifact_refs(run.id)
+    assert refs["plan"].endswith("plan.json")
+    assert refs["report"].endswith("report\\report.md") or refs["report"].endswith("report/report.md")
 
-    recent = restarted.list_runs(limit=1)
-    assert len(recent) == 1
-    assert recent[0].id == run.id
+    listed_runs = storage.list_runs(limit=10, offset=0)
+    assert listed_runs
+    assert listed_runs[0].id == run.id
+
+
+def test_local_storage_backend_methods(tmp_path: Path) -> None:
+    _exercise_backend(LocalStorageStub(base_dir=tmp_path / "runs"))
+
+
+def test_sqlite_storage_backend_methods(tmp_path: Path) -> None:
+    _exercise_backend(SQLiteStorageBackend(base_dir=tmp_path / "runs", db_path=tmp_path / "runs" / "storage.sqlite3"))

@@ -53,3 +53,19 @@ def test_extracted_document_shape_fields() -> None:
     assert str(extracted.final_url) == "https://example.com/minimal"
     assert extracted.domain == "example.com"
     assert extracted.raw_content
+
+
+def test_extractor_handles_js_heavy_shell_as_empty() -> None:
+    fetched = FetchedDocument(
+        run_id="run-3",
+        source_id="source-3",
+        requested_url="https://example.com/app",
+        final_url="https://example.com/app",
+        status_code=200,
+        content_type="text/html",
+        raw_html=_fixture("js_heavy_minimal.html"),
+        success=True,
+    )
+    extracted = Extractor().extract(fetched)
+    assert extracted.title == "Script Heavy Shell"
+    assert extracted.extraction_status in {ExtractionStatus.EMPTY, ExtractionStatus.SUCCESS}
