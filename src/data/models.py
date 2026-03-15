@@ -1,4 +1,4 @@
-"""Core typed data models for pipeline artifacts and run objects."""
+﻿"""Core typed data models for pipeline artifacts and run objects."""
 
 from __future__ import annotations
 
@@ -149,6 +149,15 @@ class AnalysisArtifact(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class RunMetrics(BaseModel):
+    """Standardized run stage counts for CLI/API/workflow outputs."""
+
+    source_count: int = 0
+    fetched_count: int = 0
+    extracted_count: int = 0
+    findings_count: int = 0
+
+
 class ReportMetadata(BaseModel):
     """Top-level report metadata for identity and generation context."""
 
@@ -194,11 +203,23 @@ class ArtifactReference(BaseModel):
 
 
 class Report(BaseModel):
-    """Structured deterministic report payload plus markdown rendering."""
+    """Deterministic report payload with structured sections and markdown."""
 
-    metadata: ReportMetadata
+    run_id: str
+    objective: str
+    title: str
+    generated_at: datetime
+    executive_summary: str
+    findings: list[str] = Field(default_factory=list)
+    major_themes: list[str] = Field(default_factory=list)
+    contradictions_disagreements: list[str] = Field(default_factory=list)
+    evidence_backed_sources: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    suggested_next_steps: list[str] = Field(default_factory=list)
+    artifact_summary: list[str] = Field(default_factory=list)
+    metadata: ReportMetadata | None = None
     sections: list[ReportSection] = Field(default_factory=list)
-    findings: list[FindingReference] = Field(default_factory=list)
-    sources: list[SourceReference] = Field(default_factory=list)
+    finding_references: list[FindingReference] = Field(default_factory=list)
+    source_references: list[SourceReference] = Field(default_factory=list)
     artifacts: list[ArtifactReference] = Field(default_factory=list)
     markdown: str
