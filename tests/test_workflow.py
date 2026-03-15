@@ -14,7 +14,7 @@ def test_workflow_success_with_stub_provider(monkeypatch, tmp_path: Path) -> Non
     output = run_research_workflow(RunResearchInput(objective="test objective", max_sources=2), storage=storage)
     assert output.run.status.value == "completed"
     assert output.search_queries
-    assert output.discovered_sources == []
+    assert output.run_metrics.source_count == 0
     assert (Path(output.artifact_dir) / "manifest.json").exists()
     assert "report" in output.artifact_refs
     assert output.artifact_paths
