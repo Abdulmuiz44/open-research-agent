@@ -29,6 +29,7 @@ class Settings(BaseSettings):
 
     runs_dir: Path = Path("outputs/runs")
     artifacts_dir: Path = Path("outputs/artifacts")
+    storage_db_path: Path = Path("outputs/metadata.sqlite3")
 
     default_model: str = "gpt-4o-mini"
     planner_model: str = "gpt-4o-mini"

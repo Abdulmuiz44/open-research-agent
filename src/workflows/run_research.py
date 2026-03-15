@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -62,6 +63,11 @@ def _build_plan(payload: RunResearchInput) -> ResearchPlan:
         research_objectives=objectives[:3],
         source_budget=min(payload.max_sources, get_settings().max_sources_per_run),
     )
+
+
+def _resolve_run_dir(storage: StorageBackend, run_id: str) -> str:
+    base_dir = getattr(storage, "base_dir", get_settings().runs_dir)
+    return str((Path(base_dir) / run_id).resolve())
 
 
 def run_research_workflow(
@@ -128,6 +134,8 @@ def run_research_workflow(
                     title=source.title,
                 )
             )
+        for document in fetched:
+            backend.save_fetched_document_metadata(document)
         for document in extracted:
             backend.save_extracted_document(document)
 
@@ -213,7 +221,7 @@ def run_research_workflow(
             extracted_documents=extracted,
             analysis_artifacts=[artifact],
             report_markdown=report_markdown,
-            artifact_dir=str((get_settings().runs_dir / run.id).resolve()),
+            artifact_dir=_resolve_run_dir(backend, run.id),
             artifact_paths=backend.list_run_artifacts(run.id),
             artifact_refs=artifact_refs,
         )
