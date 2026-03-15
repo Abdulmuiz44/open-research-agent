@@ -1,4 +1,4 @@
-# v0.1 Release Checklist
+# v0.1.0 Release Checklist
 
 - [ ] Configuration validation passes with default settings.
 - [ ] Runs directory is writable and artifacts persist locally.
