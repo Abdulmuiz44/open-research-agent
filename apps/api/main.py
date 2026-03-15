@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 
 from src.core.config import get_settings
 from src.core.logging import configure_logging_from_settings, get_logger
-from src.data.schemas import HealthResponse, ResearchRunCreateRequest, ResearchRunResponse, RunArtifactsResponse
+from src.data.schemas import (
+    HealthResponse,
+    ResearchRunCreateRequest,
+    ResearchRunResponse,
+    RunArtifactsResponse,
+)
 from src.data.storage import LocalStorageStub
 from src.workflows.run_research import RunResearchInput, run_research_workflow
 
@@ -14,19 +21,33 @@ settings = get_settings()
 configure_logging_from_settings(settings)
 logger = get_logger("ora.api")
 storage = LocalStorageStub()
-app = FastAPI(title="Open Research Agent API", version="0.1.0")
 
 
-@app.on_event("startup")
-def startup() -> None:
-    """Log API startup context."""
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Log API startup context for local MVP deployment."""
     logger.info("api startup | env=%s", settings.environment)
+    yield
+
+
+app = FastAPI(title="Open Research Agent API", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    """Return service health status."""
+    """Return process health status."""
     return HealthResponse(app_name=settings.app_name, environment=settings.environment)
+
+
+@app.get("/ready", response_model=HealthResponse)
+def readiness() -> HealthResponse:
+    """Return readiness status when storage paths are available."""
+    if not storage.base_dir.exists():
+        raise HTTPException(
+            status_code=503,
+            detail=f"Storage directory is not ready: {storage.base_dir}",
+        )
+    return HealthResponse(status="ready", app_name=settings.app_name, environment=settings.environment)
 
 
 @app.post("/runs", response_model=ResearchRunResponse)
@@ -63,7 +84,7 @@ def get_research_run(run_id: str) -> ResearchRunResponse:
     """Fetch run metadata by run ID."""
     run = storage.get_run(run_id)
     if run is None:
-        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' was not found in local storage")
 
     artifacts = storage.list_run_artifacts(run_id)
     refs = storage.get_run_artifact_refs(run_id)
@@ -85,7 +106,7 @@ def get_run_artifacts(run_id: str) -> RunArtifactsResponse:
     """List artifact references for a run."""
     run = storage.get_run(run_id)
     if run is None:
-        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' was not found in local storage")
     return RunArtifactsResponse(
         run_id=run_id,
         artifact_paths=storage.list_run_artifacts(run_id),

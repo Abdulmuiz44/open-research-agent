@@ -21,6 +21,14 @@ def test_health_route() -> None:
     assert payload["app_name"]
 
 
+def test_ready_route() -> None:
+    """Readiness route should return ready when storage path exists."""
+    response = client.get("/ready")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready"
+
+
 def test_create_run_route_executes_workflow(monkeypatch) -> None:
     """Run creation endpoint should execute workflow and return summary."""
     workflow_module.get_settings.cache_clear()

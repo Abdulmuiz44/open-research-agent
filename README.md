@@ -1,112 +1,84 @@
 # Open Research Agent
 
-Open Research Agent is an open-source, Python-first system for bounded research workflows over web and local data sources.
+Open Research Agent is a Python-first MVP for bounded research workflows over public web sources.
 
-## Current Status
+## v0.1 MVP Status
 
-**Report Generation and Local Persistence Implemented** — the project now runs a bounded local flow with deterministic report generation, local metadata persistence, and per-run inspectable artifacts on disk.
+**Release candidate (v0.1.0)**
 
-## What is Implemented Now
+The MVP supports deterministic local runs that persist inspectable artifacts for each stage:
 
-- Deterministic plan-to-query generation.
-- Real search provider abstraction with a local DuckDuckGo HTML provider.
-- Source ranking and URL deduplication heuristics.
-- Real HTTP fetch layer with timeout/retry/user-agent controls and fetch metadata capture.
-- Bounded browser fetch placeholder interface (`browser_fetch_not_enabled`).
-- Real bounded extraction path with title, cleaned text, canonical URL, metadata extraction, whitespace normalization, and basic boilerplate filtering.
-- Deterministic report generation (`report/report.md` plus `analysis/final_result.json`) from bounded extracted evidence.
-- Local metadata persistence for run lifecycle and artifact references.
-- Local artifact persistence per run under `outputs/runs/<run_id>/`.
-- End-to-end workflow orchestration from objective → queries → discovery → fetch → extraction → deterministic report.
-- CLI `research` output includes run and artifact details.
-- API run endpoints include extracted-document and artifact metadata.
+1. plan/query generation
+2. source discovery
+3. HTTP fetch
+4. bounded extraction
+5. deterministic analysis summary
+6. report generation
 
-## Persistence Locations
+## Implemented Surface (v0.1)
 
-- Run metadata SQLite file: `data/app.db`
-- Run artifacts root: `outputs/runs/<run_id>/`
-- Deterministic report artifacts:
-  - `outputs/runs/<run_id>/analysis/final_result.json`
-  - `outputs/runs/<run_id>/report/report.md`
+- CLI commands:
+  - `ora health`
+  - `ora research "<objective>" --max-sources <n>`
+  - `ora fetch <url>` (intentionally limited)
+  - `ora analyze <run_id>` (intentionally limited)
+- API endpoints:
+  - `GET /health`
+  - `GET /ready`
+  - `POST /runs`
+  - `GET /runs/{run_id}`
+  - `GET /runs/{run_id}/artifacts`
+- Local run storage and artifact persistence under `outputs/runs/<run_id>/`.
+- Deterministic report and final result output.
+- Browser fetch fallback placeholder (`browser_fetch_not_enabled`) for bounded non-MVP behavior.
 
-## Run Artifacts
+## Artifact and Output Paths
 
-Each run writes inspectable files to:
+Each run writes artifacts under `outputs/runs/<run_id>/`, including:
 
-- `outputs/runs/<run_id>/manifest.json`
-- `outputs/runs/<run_id>/plan.json`
-- `outputs/runs/<run_id>/sources.json`
-- `outputs/runs/<run_id>/fetched/documents.json`
-- `outputs/runs/<run_id>/extracted/documents.json`
-- `outputs/runs/<run_id>/analysis/final_result.json`
-- `outputs/runs/<run_id>/report/report.md`
-- Additional per-document extracted artifacts under `outputs/runs/<run_id>/extracted/`
+- `manifest.json`
+- `plan.json`
+- `sources.json`
+- `fetched/documents.json`
+- `extracted/documents.json`
+- `analysis/final_result.json`
+- `report/report.md`
 
-## What Remains Intentionally Deferred
+`analysis/final_result.json` includes release-critical run metadata and counts:
 
-- Full crawler orchestration and autonomous browsing.
-- Playwright browser automation implementation.
-- LLM prose generation for report writing (MVP reports are deterministic/templated).
-- Vector search and advanced retrieval.
-- OCR and PDF parsing pipelines.
-- Distributed persistence/backing stores (single-node local persistence only in MVP).
+- `run_id`, `status`, `query`/`objective`
+- `created_at`, `updated_at`
+- source/fetch/extraction counts
+- findings/themes counts
+- `artifact_dir`, `artifact_count`, `report_path`
 
-## Environment Variables
+## Quickstart
 
-All runtime config uses `ORA_` prefix:
-
-- `ORA_SEARCH_PROVIDER` (default: `duckduckgo_html`)
-- `ORA_SEARCH_ENDPOINT` (default: `https://duckduckgo.com/html/`)
-- `ORA_REQUEST_TIMEOUT_SECONDS` (default: `10.0`)
-- `ORA_REQUEST_RETRIES` (default: `2`)
-- `ORA_USER_AGENT` (default: `open-research-agent/0.1 (+https://example.local)`)
-- `ORA_MAX_SOURCES_PER_RUN` (default: `8`)
-- `ORA_MAX_FETCH_PER_RUN` (default: `6`)
-
-## Local Setup
-
-1. Install Python 3.11 and `uv`.
-2. Install dependencies:
+1. Install Python 3.11+ and `uv`
+2. Install deps:
    - `uv sync --extra dev`
-3. Optional `.env` overrides (example):
-   - `ORA_ENVIRONMENT=development`
-   - `ORA_LOG_LEVEL=INFO`
-   - `ORA_SEARCH_PROVIDER=duckduckgo_html`
+3. Optional env setup:
+   - `cp .env.example .env`
 
-## Run Locally
+Run CLI:
 
-- CLI health: `uv run ora health`
-- CLI research flow:
-  - `uv run ora research "Compare open-source HTML extraction libraries" --max-sources 6`
-- API server:
-  - `uv run uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --reload`
-- API run execution:
-  - `curl -X POST http://127.0.0.1:8000/runs -H 'content-type: application/json' -d '{"objective":"Compare open-source HTML extraction libraries","max_sources":6}'`
+- `uv run ora health`
+- `uv run ora research "Compare open-source HTML extraction libraries" --max-sources 6`
 
-## Inspect Outputs Locally
+Run API:
 
-- Check the run directory printed by CLI/API.
-- Open `manifest.json` for the artifact index.
-- Review `extracted/documents.json` for structured extracted evidence.
-- Read `report/report.md` for the deterministic run summary.
+- `uv run uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --reload`
+- `curl -X POST http://127.0.0.1:8000/runs -H 'content-type: application/json' -d '{"objective":"Compare open-source HTML extraction libraries","max_sources":6}'`
 
-## Inspect Previous Runs (CLI/API)
+Inspect a run:
 
-- CLI:
-  - Run and capture `run_id` from output:
-    - `uv run ora research "Compare open-source HTML extraction libraries" --max-sources 6`
-  - Inspect persisted artifacts for that run:
-    - `cat outputs/runs/<run_id>/manifest.json`
-    - `cat outputs/runs/<run_id>/report/report.md`
-- API:
-  - Fetch run metadata:
-    - `curl http://127.0.0.1:8000/runs/<run_id>`
-  - List artifact paths and references:
-    - `curl http://127.0.0.1:8000/runs/<run_id>/artifacts`
+- `curl http://127.0.0.1:8000/runs/<run_id>`
+- `curl http://127.0.0.1:8000/runs/<run_id>/artifacts`
 
-## Known Limitations
+## Deferred (Out of v0.1 Scope)
 
-- Search provider may vary by network availability and remote result changes.
-- Browser fetch is a non-active placeholder in this step.
-- Extraction quality is intentionally basic and bounded.
-- Storage is local file-based and not a production database.
+- Full browser automation for fetch fallback
+- OCR/PDF parsing pipelines
+- Vector search and advanced retrieval stacks
+- Distributed infrastructure and production-grade multi-node persistence
+- Autonomous open-ended agent loops

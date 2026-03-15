@@ -117,12 +117,68 @@ class LocalStorageStub(StorageBackend):
         return str(path)
 
     def get_run(self, run_id: str) -> ResearchRun | None:
-        return self._runs.get(run_id)
+        in_memory = self._runs.get(run_id)
+        if in_memory is not None:
+            return in_memory
+
+        manifest_path = self._run_dir(run_id) / "manifest.json"
+        if not manifest_path.exists():
+            return None
+
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            run = ResearchRun(
+                id=manifest.get("run_id", run_id),
+                objective=manifest.get("objective", "unknown objective"),
+                status=RunStatus(manifest.get("status", RunStatus.CREATED.value)),
+                created_at=manifest.get("created_at", datetime.now(UTC).isoformat()),
+                updated_at=manifest.get("updated_at", datetime.now(UTC).isoformat()),
+            )
+            self._runs[run_id] = run
+            return run
+        except (json.JSONDecodeError, ValueError):
+            return None
 
     def list_run_artifacts(self, run_id: str) -> list[str]:
-        return list(self._artifacts[run_id])
+        in_memory = list(self._artifacts[run_id])
+        if in_memory:
+            return in_memory
+
+        run_dir = self._run_dir(run_id)
+        if not run_dir.exists():
+            return []
+
+        discovered_paths = sorted(
+            str(path.relative_to(run_dir)) for path in run_dir.rglob("*") if path.is_file()
+        )
+        self._artifacts[run_id].extend(discovered_paths)
+        return discovered_paths
 
     def get_run_artifact_refs(self, run_id: str) -> dict[str, str]:
+        in_memory = dict(self._artifact_refs[run_id])
+        if in_memory:
+            return in_memory
+
+        manifest_path = self._run_dir(run_id) / "manifest.json"
+        if not manifest_path.exists():
+            return {}
+
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+
+        path_refs = manifest.get("paths", {})
+        if not isinstance(path_refs, dict):
+            return {}
+
+        self._artifact_refs[run_id].update(
+            {
+                key: str(value)
+                for key, value in path_refs.items()
+                if isinstance(key, str) and isinstance(value, str)
+            }
+        )
         return dict(self._artifact_refs[run_id])
 
     def _track(self, run_id: str, relative_path: str) -> None:
