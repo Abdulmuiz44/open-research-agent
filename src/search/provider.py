@@ -69,6 +69,45 @@ class DuckDuckGoHtmlProvider:
         return results
 
 
+@dataclass(slots=True)
+class TavilySearchProvider:
+    """Tavily search provider using the official Python SDK."""
+
+    api_key: str
+    timeout_s: float
+    search_depth: str = "basic"
+
+    def search(self, run_id: str, query: str, limit: int = 10) -> list[CandidateSource]:
+        from tavily import TavilyClient
+
+        client = TavilyClient(api_key=self.api_key)
+        response = client.search(
+            query=query,
+            max_results=limit,
+            search_depth=self.search_depth,
+        )
+
+        results: list[CandidateSource] = []
+        for rank, item in enumerate(response.get("results", []), start=1):
+            url = item.get("url", "")
+            domain = urlparse(url).netloc.lower()
+            results.append(
+                CandidateSource(
+                    run_id=run_id,
+                    query=query,
+                    url=url,
+                    domain=domain,
+                    title=item.get("title", ""),
+                    snippet=item.get("content"),
+                    provider="tavily",
+                    provider_rank=rank,
+                    score=item.get("score", max(0.0, 1 - (rank - 1) * 0.05)),
+                    metadata={"search_depth": self.search_depth},
+                )
+            )
+        return results
+
+
 class StubSearchProvider:
     """Fallback provider used when discovery is intentionally disabled."""
 
@@ -84,5 +123,10 @@ def build_search_provider(settings: Settings) -> SearchProvider:
             timeout_s=settings.request_timeout_seconds,
             user_agent=settings.user_agent,
             endpoint=settings.search_endpoint,
+        )
+    elif settings.search_provider == "tavily":
+        return TavilySearchProvider(
+            api_key=settings.search_api_key,
+            timeout_s=settings.request_timeout_seconds,
         )
     return StubSearchProvider()
